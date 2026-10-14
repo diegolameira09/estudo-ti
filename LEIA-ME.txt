@@ -1,0 +1,67 @@
+ESTUDO TI: app do cronograma, offline no celular
+
+O que é
+- Mostra a sessão do dia, abre o PDF na página certa, cronometra 20/5/20/3 e guarda o caderno de erros.
+- Depois de instalado, funciona sem internet. Progresso, erros e PDFs ficam só no celular.
+
+1. Publicar (uma vez, no PC)
+1) Entre em github.com, clique em New repository, nome: estudo-ti, marque Public e crie.
+2) Na página do repositório, clique em "uploading an existing file".
+3) Arraste TODO o conteúdo desta pasta (arquivos e as pastas icons e vendor), não a pasta em si. Clique em Commit changes.
+4) Vá em Settings > Pages > Source: Deploy from a branch > Branch: main, pasta / (root) > Save.
+5) Em 1 a 2 minutos o app fica em https://SEU-USUARIO.github.io/estudo-ti/
+O repositório é público, mas só tem o app e o cronograma (nomes de arquivos e páginas). NUNCA suba os PDFs: são material protegido e trazem seus dados pessoais na marca d'água.
+
+1b. Usar só no PC, sem publicar
+- Não abra o index.html direto: o navegador bloqueia o app quando ele é aberto como arquivo.
+- Dê dois cliques em "Abrir no PC.bat", nesta pasta. Ele liga um servidor local numa janela minimizada e abre o app em http://localhost:8123.
+- No Brave ou no Edge, instale como app (ícone de instalar na barra de endereço). Depois da primeira vez, o app instalado abre mesmo sem o .bat.
+- Rode o .bat de novo só quando houver atualização dos arquivos.
+- Os dados do localhost são separados dos dados do link do GitHub. Para juntar, use Mesclar backup.
+
+2. Instalar no celular
+1) Abra o link no Chrome do celular.
+2) Menu (três pontos) > Instalar app (ou Adicionar à tela inicial).
+3) Abra pelo ícone "Estudo TI". A partir daqui não precisa de internet.
+
+3. Colocar os PDFs no app
+1) Copie os PDFs das 10 pastas de matéria para o celular (cabo USB, por exemplo para Download/Estrategia). Não precisa da _Fora do plano.
+2) No app: Mais > Importar PDFs > selecione os PDFs. Dá para marcar vários de uma vez; importe uma pasta de cada vez.
+3) São 106 PDFs, cerca de 535 MB. Depois de importados, pode apagar a cópia da pasta Download: eles ficam dentro do app.
+
+4. Uso diário
+- Aba Sessão: siga o número da sessão. Os botões abrem o PDF na página indicada. Marque cada item feito.
+- Errou ou chutou: "+ Erro" (no leitor, já vem com a página aberta).
+- Marcar no PDF: no leitor, toque no lápis. Escolha Caneta, Marca-texto, Texto ou Borracha. Um dedo desenha, dois dedos rolam a página; ↶ desfaz. Toque em Pronto para voltar a rolar normalmente.
+- As marcações ficam salvas no app (não dentro do arquivo PDF) e entram no backup.
+- Fechamento: escreva 3 linhas sem consultar e toque em Concluir sessão.
+- Revisões (sessões 5, 10, 15...): a tela lista os erros que voltam naquela sessão; refaça e marque Acertei ou Errei.
+
+5. IA e planilha (opcional, com internet)
+- Mais > Copiar para a IA: cole na conversa que tem o prompt do "Prompt Caderno de Erros.txt" e anexe os prints.
+- Copie o bloco que a IA devolver e use Mais > Colar retorno da IA. O app completa Assunto, Regra correta e Alerta.
+- Mais > Copiar erros novos: cola na planilha "Caderno de Erros TI.xlsx", coluna A da primeira linha vazia.
+- Faça a IA antes de exportar: o que já foi exportado não é reenviado.
+
+6. Backup (obrigatório)
+- Toda semana: Mais > Baixar backup. Mova o arquivo .json para o Google Drive ou para o PC.
+- Limpar os dados do Chrome ou desinstalar o app apaga tudo. O backup traz de volta progresso, erros e marcações; os PDFs precisam ser importados de novo.
+- Teste a restauração uma vez (Mais > Restaurar backup) para saber que funciona.
+
+6b. Sincronizar PC, celular e tablet (Google Drive + FolderSync)
+Preparar uma vez:
+1) No Google Drive, crie a pasta EstudoTI.
+2) No PC, com o Google Drive para computador instalado: abra o app no Edge > Mais > Sincronização > Escolher pasta > selecione a pasta EstudoTI do Drive (ex.: G:\Meu Drive\EstudoTI).
+   O app grava estudo-ti-pc.json nela e mescla sozinho os arquivos dos outros aparelhos: ao abrir, a cada 90 segundos e depois de cada mudança.
+   No Brave essa função costuma vir desligada. Use o Edge, ou ative "File System Access API" em brave://flags.
+3) No celular, no FolderSync: crie uma sincronização nos dois sentidos entre a pasta Download do aparelho e a pasta EstudoTI do Drive, com filtro para incluir só arquivos que começam com "estudo-ti-". Deixe a sincronização automática ligada.
+4) Dê um nome diferente a cada aparelho em Mais > Sincronização (pc, celular, tablet).
+No dia a dia:
+- PC: nada a fazer. Se aparecer o aviso de sincronização pausada, toque em ⇅ no topo e autorize a pasta de novo.
+- Celular e tablet: ao começar e ao terminar o estudo, toque em ⇅ no topo e escolha na pasta Download o estudo-ti-pc.json (e o do outro aparelho, se houver). O app mescla e salva o arquivo deste aparelho em Downloads; o FolderSync leva para o Drive.
+- Se cancelar a escolha do arquivo, o app só salva o arquivo deste aparelho.
+- Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
+
+7. Atualizar o app
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (estudo-ti-v5 para estudo-ti-v6).
+- Na próxima vez que abrir o app com internet, ele avisa e atualiza.

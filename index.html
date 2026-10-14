@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F766E">
+<title>Estudo TI</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Estudo TI</div>
+  <div class="row"><div class="prog" id="topProg"></div><button id="syncBtn" class="ib" aria-label="Sincronizar" title="Sincronizar">⇅</button></div>
+</header>
+<main id="view" aria-live="polite"></main>
+<nav class="tabs" id="tabs">
+  <button data-tab="sessao" class="on"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z M8 3v4 M16 3v4 M4 10h16"/></svg><span>Sessão</span></button>
+  <button data-tab="erros"><svg viewBox="0 0 24 24"><path d="M12 3l9 16H3z M12 10v4 M12 17v.5"/></svg><span>Erros</span></button>
+  <button data-tab="crono"><svg viewBox="0 0 24 24"><path d="M5 6h14 M5 12h14 M5 18h9"/></svg><span>Cronograma</span></button>
+  <button data-tab="mais"><svg viewBox="0 0 24 24"><path d="M5 12h.01 M12 12h.01 M19 12h.01"/></svg><span>Mais</span></button>
+</nav>
+
+<section id="viewer" class="viewer" hidden>
+  <div class="vbar">
+    <button id="vClose" class="ib" aria-label="Fechar">✕</button>
+    <div class="vtitle"><div id="vName"></div><div id="vPage" class="mut"></div></div>
+    <button id="vErr" class="chip acc">+ Erro</button>
+  </div>
+  <div class="vjump" id="vJump"></div>
+  <div class="vpages" id="vPages"></div>
+  <div class="vtools" id="vTools" hidden>
+    <button class="chip" data-tool="p">Caneta</button><button class="chip" data-tool="h">Marca-texto</button><button class="chip" data-tool="x">Texto</button><button class="chip" data-tool="e">Borracha</button>
+    <span id="vColors" class="row"></span><span class="sp"></span>
+    <button class="ib" id="vUndo" aria-label="Desfazer">↶</button><button class="chip acc" id="vDone">Pronto</button>
+  </div>
+  <div class="vctl">
+    <button id="vPrev" class="ib" aria-label="Página anterior">‹</button>
+    <input id="vGo" type="number" inputmode="numeric" aria-label="Ir para página">
+    <button id="vNext" class="ib" aria-label="Próxima página">›</button>
+    <button id="vPen" class="ib" aria-label="Marcar no PDF">✎</button>
+    <span class="sp"></span>
+    <button id="vZo" class="ib" aria-label="Diminuir zoom">−</button>
+    <button id="vZi" class="ib" aria-label="Aumentar zoom">+</button>
+  </div>
+</section>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<div id="toast" class="toast" hidden></div>
+<input type="file" id="pdfInput" accept="application/pdf" multiple hidden>
+<input type="file" id="bkInput" accept="application/json,.json" multiple hidden>
+<script>
+if (location.protocol === 'file:') document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('view').innerHTML = '<div class="card"><h2>Abra pelo atalho, não pelo arquivo</h2>' +
+    '<p>O navegador bloqueia o app quando o index.html é aberto direto da pasta.</p>' +
+    '<p><b>No PC:</b> dê dois cliques em <b>Abrir no PC.bat</b>, nesta mesma pasta. Ele abre o app em http://localhost:8123.</p>' +
+    '<p><b>No celular:</b> use o link do GitHub Pages (veja o LEIA-ME).</p></div>';
+});
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
