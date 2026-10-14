@@ -1042,8 +1042,15 @@ async function init() {
   try { if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {}
 }
 if ('serviceWorker' in navigator) {
+  let tinhaSW = !!navigator.serviceWorker.controller, recarregou = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!tinhaSW) { tinhaSW = true; return; }
+    if (recarregou) return;
+    if ($('#viewer').hidden) { recarregou = true; location.reload(); }
+    else toast('Nova versão pronta. Feche o PDF para atualizar.', 6000);
+  });
   navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.addEventListener('updatefound', () => {
+    reg.update?.(); reg.addEventListener('updatefound', () => {
       const w = reg.installing; w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) toast('Nova versão instalada. Feche e abra o app para usar.', 5000); });
     });
   }).catch(() => {});
