@@ -45,7 +45,7 @@ const pdfGet = k => run('pdfs', 'readonly', s => s.get(k));
 const pdfKeys = () => run('pdfs', 'readonly', s => s.getAllKeys());
 
 /* ---------------- estado ---------------- */
-const S = { C: null, del: {}, prog: {}, set: { dias: [1, 3, 5], durs: [20, 5, 20, 3] }, erros: [], pdfs: new Set(), tab: 'sessao', viewN: null, lastBackup: null, filtro: { mat: '', st: 'todos' } };
+const S = { C: null, pv: {}, del: {}, prog: {}, set: { dias: [1, 3, 5], durs: [20, 5, 20, 3] }, erros: [], pdfs: new Set(), tab: 'sessao', viewN: null, lastBackup: null, filtro: { mat: '', st: 'todos' } };
 const sess = n => S.C.sessoes[n - 1];
 const aula = k => S.C.aulas[k];
 const MAT = k => (k === 'REV' ? 'Revisão' : S.C.materias[k]);
@@ -56,6 +56,9 @@ const saveProg = () => { scheduleSync(); return kvSet('prog', S.prog); };
 const newUid = () => (crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
 const legacyUid = e => `m${e.criado || 0}-${e.sessao}-${e.pagina}-${digits(e.questao)}`;
 const ets = e => e.upd || e.criado || 0;
+const fileHash = async blob => { const b = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()); return [...new Uint8Array(b)].slice(0, 8).map(x => x.toString(16).padStart(2, '0')).join(''); };
+const outdated = A => !!(A && S.pdfs.has(A.file) && A.ver && S.pv[A.file] && S.pv[A.file] !== A.ver);
+const errOld = e => { const A = aula(e.aula); return !!(A?.ver && e.aver && e.aver !== A.ver); };
 const rev1 = n => (n % 5 === 0 ? n + 5 : Math.ceil(n / 5) * 5);
 const rev2 = n => rev1(n) + 15;
 function status(e) {
@@ -166,6 +169,8 @@ function render() {
 /* ---------------- render: sessão ---------------- */
 function banners() {
   let h = '';
+  const od = Object.values(S.C.aulas).filter(outdated).length;
+  if (od) h += `<div class="banner warn">${od} PDF(s) importado(s) em versão diferente da do cronograma. Reimporte em <b>Mais › PDFs</b>.</div>`;
   if (syncDir && S.syncOff) h += `<div class="banner warn">Sincronização pausada: toque em ⇅ no topo para reconectar a pasta.</div>`;
   if (!S.pdfs.size) h += `<div class="banner">Importe os PDFs em <b>Mais › PDFs</b> para abrir as páginas direto no app.</div>`;
   const dias = S.lastBackup ? (Date.now() - new Date(S.lastBackup).getTime()) / 864e5 : Infinity;
@@ -206,6 +211,7 @@ function contentCard(s, p) {
       cur = it.a; const A = aula(it.a);
       h += `<div class="aulah">${esc(A.lab)} · ${A.v === 'C' ? 'Completo' : 'Simplificado'}</div>`;
       if (!S.pdfs.has(A.file)) h += `<div class="small warn">PDF não importado: ${esc(A.file)}</div>`;
+      else if (outdated(A)) h += `<div class="small warn">PDF desatualizado: o cronograma usa uma versão nova deste arquivo. Reimporte em Mais › PDFs.</div>`;
     }
     const done = !!p.items?.[i];
     h += `<div class="item ${done ? 'done' : ''}"><input type="checkbox" data-item="${i}" ${done ? 'checked' : ''} aria-label="Feito">
@@ -215,7 +221,7 @@ function contentCard(s, p) {
 }
 function errLine(e) {
   const A = aula(e.aula);
-  return `S${e.sessao} · ${esc(A ? MAT(A.sj) : '')} · ${esc(A?.lab || '')} · p. ${esc(e.pagina)} · ${esc(e.questao)}`;
+  return `S${e.sessao} · ${esc(A ? MAT(A.sj) : '')} · ${esc(A?.lab || '')} · p. ${esc(e.pagina)} · ${esc(e.questao)}${errOld(e) ? ' · <span class="warn">versão antiga do PDF</span>' : ''}`;
 }
 function revList(list, key, titulo) {
   if (!list.length) return `<div class="small mut">${titulo}: nenhum erro lançado.</div>`;
@@ -301,7 +307,7 @@ function errForm(pre = {}) {
       minha: $('#fMinha', f).value.trim(), gab: $('#fGab', f).value.trim(), tipo, porque: $('#fPorque', f).value.trim(), assunto: $('#fAss', f).value.trim(), banca: $('#fBanca', f).value.trim(),
       regra: $('#fRegra', f).value.trim(), alerta: $('#fAlerta', f).value.trim(), r1: $('#fR1', f).value, r2: $('#fR2', f).value, upd: Date.now() };
     if (!out.pagina || !out.questao) { toast('Informe página e número da questão.'); return; }
-    if (!out.id) { delete out.id; out.criado = Date.now(); out.exp = false; out.uid = newUid(); }
+    if (!out.id) { delete out.id; out.criado = Date.now(); out.exp = false; out.uid = newUid(); out.aver = aula(out.aula)?.ver; }
     const id = await errPut(out); out.id = out.id ?? id;
     S.erros = S.erros.filter(x => x.id !== out.id).concat(out);
     $('#dlg').close(); toast('Erro salvo'); render();
@@ -420,7 +426,7 @@ async function aplicarIA(text) {
       const k = Object.keys(S.C.aulas).find(k => MAT(S.C.aulas[k].sj) === f[2] && S.C.aulas[k].lab === f[3]);
       if (!k) { ign++; continue; }
       const m = f[0].match(/(\d{2})\/(\d{2})\/(\d{4})/);
-      e = { data: m ? `${m[3]}-${m[2]}-${m[1]}` : todayISO(), sessao: ses, aula: k, pagina: pag, questao: q, minha: f[10] || '', gab: f[11] || '', porque: '', r1: '', r2: '', criado: Date.now(), exp: false, uid: newUid() };
+      e = { data: m ? `${m[3]}-${m[2]}-${m[1]}` : todayISO(), sessao: ses, aula: k, pagina: pag, questao: q, minha: f[10] || '', gab: f[11] || '', porque: '', r1: '', r2: '', criado: Date.now(), exp: false, uid: newUid(), aver: S.C.aulas[k]?.ver };
       novo++;
     } else upd++;
     e.banca = f[7] || e.banca || ''; e.assunto = f[8] || e.assunto || '';
@@ -457,7 +463,12 @@ async function restaurar(file) {
   await kvSet('prog', S.prog); await kvSet('set', S.set); toast('Backup restaurado.'); render();
 }
 async function migrarUids() {
-  for (const e of S.erros) if (!e.uid) { e.uid = legacyUid(e); await errPut(e); }
+  for (const e of S.erros) {
+    let ch = false;
+    if (!e.uid) { e.uid = legacyUid(e); ch = true; }
+    if (!e.aver && aula(e.aula)?.ver) { e.aver = aula(e.aula).ver; ch = true; }
+    if (ch) await errPut(e);
+  }
 }
 async function mergeData(data) {
   const r = { novos: 0, atual: 0, rem: 0, ses: 0, pags: 0 };
@@ -500,15 +511,18 @@ async function mesclarArquivos(files) {
 /* ---------------- PDFs: importação ---------------- */
 async function importarPDFs(files) {
   const byName = new Map(Object.values(S.C.aulas).map(a => [a.file, a]));
-  let ok = 0; const fora = [];
+  let ok = 0, dif = 0; const fora = [];
   const f = $('#dlgForm'); f.innerHTML = `<h3>Importando PDFs</h3><p id="impP" class="mut">0 de ${files.length}</p>`; $('#dlg').showModal();
   for (const [i, file] of [...files].entries()) {
     $('#impP').textContent = `${i + 1} de ${files.length}: ${file.name}`;
-    if (byName.has(file.name)) { await pdfPut(file.name, file); S.pdfs.add(file.name); ok++; } else fora.push(file.name);
+    if (byName.has(file.name)) {
+      await pdfPut(file.name, file); S.pdfs.add(file.name); ok++;
+      try { const h = await fileHash(file); S.pv[file.name] = h; await kvSet('pv|' + file.name, h); if (byName.get(file.name).ver && h !== byName.get(file.name).ver) dif++; } catch {}
+    } else fora.push(file.name);
   }
   $('#dlg').close();
   try { await navigator.storage?.persist?.(); } catch {}
-  toast(`${ok} ${ok === 1 ? 'PDF importado' : 'PDFs importados'}${fora.length ? `, ${fora.length} ignorado(s) por não estar no cronograma` : ''}.`, 4500);
+  toast(`${ok} ${ok === 1 ? 'PDF importado' : 'PDFs importados'}${fora.length ? `, ${fora.length} ignorado(s) por não estar no cronograma` : ''}${dif ? `, ${dif} em versão diferente da do cronograma` : ''}.`, 5000);
   render();
 }
 $('#pdfInput').onchange = e => { if (e.target.files.length) importarPDFs(e.target.files); e.target.value = ''; };
@@ -523,6 +537,7 @@ $('#bkInput').addEventListener('cancel', () => { if (S.bkMode === 'sync') salvar
 /* ---------------- render: mais ---------------- */
 async function renderMais() {
   const aulas = Object.values(S.C.aulas); const falt = aulas.filter(a => !S.pdfs.has(a.file));
+  const desat = aulas.filter(outdated); const nomes = new Set(aulas.map(a => a.file)); const orf = [...S.pdfs].filter(f => !nomes.has(f));
   const mb = aulas.filter(a => S.pdfs.has(a.file)).reduce((t, a) => t + a.size, 0) / 1048576;
   const novos = S.erros.filter(e => !e.exp).length, semRegra = S.erros.filter(e => !e.regra).length;
   let pers = '', est = '';
@@ -533,6 +548,8 @@ async function renderMais() {
   <div class="card"><h3>PDFs</h3><div>${aulas.length - falt.length} de ${aulas.length} importados · ${mb.toFixed(0)} MB</div>
    <p class="small mut">Copie a pasta do pacote para o celular, toque em Importar e selecione os PDFs (pode importar uma pasta de cada vez). Só os arquivos do cronograma entram.</p>
    <div class="row wrap"><button class="btn pri" id="mImp">Importar PDFs</button>${S.pdfs.size ? '<button class="btn bad" id="mDelPdf">Apagar PDFs</button>' : ''}</div>
+   ${desat.length ? `<details style="margin-top:8px" open><summary class="small warn">Versão diferente do cronograma (${desat.length}): reimporte</summary><div class="small mut">${desat.map(a => `${esc(MAT(a.sj))}: ${esc(a.file)}`).join('<br>')}</div></details>` : ''}
+   ${orf.length ? `<details style="margin-top:8px"><summary class="small">Fora do cronograma (${orf.length})</summary><div class="small mut">${orf.map(esc).join('<br>')}</div><button class="btn bad" id="mDelOrf" style="margin-top:6px">Apagar estes</button></details>` : ''}
    ${falt.length ? `<details style="margin-top:8px"><summary class="small">Faltando (${falt.length})</summary><div class="small mut">${falt.map(a => `${esc(MAT(a.sj))}: ${esc(a.file)}`).join('<br>')}</div></details>` : ''}</div>
   <div class="card"><h3>Planilha</h3><p class="small mut">Complete os erros com a IA antes de exportar: o que já foi exportado não volta para a planilha sozinho.</p>
    <div class="row wrap"><button class="btn pri" id="mNovos">Copiar ${novos} erros novos</button><button class="btn" id="mTudo">Baixar tudo (.tsv)</button></div></div>
@@ -552,6 +569,7 @@ async function renderMais() {
     const id = ev.target.id;
     if (id === 'mImp') $('#pdfInput').click();
     else if (id === 'mDelPdf') { if (confirm('Apagar todos os PDFs importados? Progresso e erros ficam.')) { await run('pdfs', 'readwrite', s => s.clear()); S.pdfs.clear(); render(); } }
+    else if (id === 'mDelOrf') { if (confirm('Apagar do app os PDFs que não estão mais no cronograma?')) { const nomes = new Set(Object.values(S.C.aulas).map(a => a.file)); for (const f of [...S.pdfs]) if (!nomes.has(f)) { await run('pdfs', 'readwrite', s => s.delete(f)); await run('kv', 'readwrite', s => s.delete('pv|' + f)); S.pdfs.delete(f); delete S.pv[f]; } render(); } }
     else if (id === 'mNovos') exportNovos();
     else if (id === 'mTudo') exportTudo();
     else if (id === 'mIA') copiarIA();
@@ -659,7 +677,9 @@ const aRange = f => IDBKeyRange.bound(`a|${f ?? ''}`, `a|${f ?? ''}￿`);
 async function loadAnn(file) {
   V.ann = new Map(); V.annFile = file; V.undo = [];
   const [ks, vs] = await Promise.all([run('kv', 'readonly', s => s.getAllKeys(aRange(file + '|'))), run('kv', 'readonly', s => s.getAll(aRange(file + '|')))]);
-  ks.forEach((k, i) => V.ann.set(+k.split('|').pop(), Array.isArray(vs[i]) ? vs[i] : vs[i]?.o || []));
+  const ver = aula(V.aula)?.file === file ? aula(V.aula)?.ver : null; V.annOld = 0;
+  ks.forEach((k, i) => { const r = vs[i]; const ops = Array.isArray(r) ? r : r?.o || []; V.ann.set(+k.split('|').pop(), ops); if (ver && r?.v && r.v !== ver && ops.length) V.annOld++; });
+  paintNote();
 }
 async function anotAll() {
   const [ks, vs] = await Promise.all([run('kv', 'readonly', s => s.getAllKeys(aRange(''))), run('kv', 'readonly', s => s.getAll(aRange('')))]);
@@ -668,7 +688,7 @@ async function anotAll() {
 async function anotClear() { const ks = await run('kv', 'readonly', s => s.getAllKeys(aRange(''))); for (const k of ks) await run('kv', 'readwrite', s => s.delete(k)); }
 async function saveAnn(p) {
   const ops = V.ann.get(p) || [];
-  scheduleSync(); await kvSet(akey(V.file, p), { u: Date.now(), o: ops });
+  scheduleSync(); await kvSet(akey(V.file, p), { u: Date.now(), o: ops, v: aula(V.aula)?.ver });
 }
 function snapshot(p) { V.undo.push({ p, ops: JSON.parse(JSON.stringify(V.ann.get(p) || [])) }); if (V.undo.length > 100) V.undo.shift(); }
 function ensureInk(d, i) {
@@ -785,6 +805,20 @@ function endPointer(e) {
 }
 vp.addEventListener('pointerup', endPointer);
 vp.addEventListener('pointercancel', endPointer);
+
+function paintNote() {
+  const el = $('#vNote'); if (!el) return;
+  el.hidden = !V.annOld;
+  if (V.annOld) el.innerHTML = `Marcações em ${V.annOld} página(s) foram feitas na versão antiga deste PDF e podem estar fora do lugar. <button class="chip" id="vClearOld">Apagar marcações deste PDF</button>`;
+}
+async function limparMarcacoes() {
+  if (!V.file || !confirm('Apagar todas as marcações deste PDF? Dá para desfazer só restaurando um backup.')) return;
+  const ks = await run('kv', 'readonly', s => s.getAllKeys(aRange(V.file + '|'))); const ver = aula(V.aula)?.ver;
+  for (const k of ks) await kvSet(k, { u: Date.now(), o: [], v: ver });
+  V.ann = new Map(); V.undo = []; V.annOld = 0; [...V.rendered.keys()].forEach(drawInk); paintNote(); scheduleSync(); toast('Marcações deste PDF apagadas.');
+}
+$('#vNote').onclick = e => { if (e.target.id === 'vClearOld') limparMarcacoes(); };
+
 function paintTools() {
   const on = !!V.tool;
   $('#vTools').hidden = !on; $('#vPen').classList.toggle('on', on);
@@ -800,6 +834,7 @@ $('#vTools').onclick = async e => {
   const id = e.target.closest('button')?.id;
   if (id === 'vUndo') { const u = V.undo.pop(); if (!u) return toast('Nada para desfazer.'); V.ann.set(u.p, u.ops); drawInk(u.p); await saveAnn(u.p); if (u.p !== V.cur) goPage(u.p); }
   if (id === 'vDone') { V.tool = null; paintTools(); }
+  if (id === 'vClear') limparMarcacoes();
 };
 
 
@@ -879,6 +914,14 @@ function syncCard() {
    <div class="row wrap" style="margin-top:8px"><button class="btn pri" id="mSyncCel">Sincronizar</button><button class="btn" id="mSalvar">Só salvar este aparelho</button></div></div>`;
 }
 
+async function hashPendentes() {
+  let any = false;
+  for (const f of [...S.pdfs]) {
+    if (S.pv[f]) continue;
+    try { const b = await pdfGet(f); if (!b) continue; const h = await fileHash(b); S.pv[f] = h; await kvSet('pv|' + f, h); any = true; } catch {}
+  }
+  if (any && Object.values(S.C.aulas).some(outdated)) render();
+}
 /* ---------------- inicialização ---------------- */
 async function init() {
   S.C = await (await fetch('cronograma.json')).json();
@@ -886,11 +929,13 @@ async function init() {
   S.set = { ...S.set, ...((await kvGet('set')) || {}) };
   S.erros = await errAll(); S.del = (await kvGet('del')) || {}; await migrarUids();
   S.pdfs = new Set(await pdfKeys());
+  { const ks = await run('kv', 'readonly', s => s.getAllKeys(IDBKeyRange.bound('pv|', 'pv|\uffff'))); const vs = await run('kv', 'readonly', s => s.getAll(IDBKeyRange.bound('pv|', 'pv|\uffff'))); ks.forEach((k, i) => (S.pv[k.slice(3)] = vs[i])); }
   S.lastBackup = (await kvGet('lastBackup')) || null;
   S.set.device ||= hasFS ? 'pc' : 'celular'; S.lastSync = (await kvGet('lastSync')) || null; S.syncDirty = true;
   if (hasFS) syncDir = (await kvGet('syncDir')) || null;
   tLoad(); render();
   if (syncDir) syncNow(false, true);
+  hashPendentes();
   try { if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {}
 }
 if ('serviceWorker' in navigator) {

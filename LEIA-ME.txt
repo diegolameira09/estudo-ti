@@ -9,7 +9,7 @@ O que é
 2) Na página do repositório, clique em "uploading an existing file".
 3) Arraste TODO o conteúdo desta pasta (arquivos e as pastas icons e vendor), não a pasta em si. Clique em Commit changes.
 4) Vá em Settings > Pages > Source: Deploy from a branch > Branch: main, pasta / (root) > Save.
-5) Em 1 a 2 minutos o app fica em https://SEU-USUARIO.github.io/estudo-ti/
+5) Em 1 a 2 minutos o app fica em https://diegolameira09.github.io/estudo-ti/
 O repositório é público, mas só tem o app e o cronograma (nomes de arquivos e páginas). NUNCA suba os PDFs: são material protegido e trazem seus dados pessoais na marca d'água.
 
 1b. Usar só no PC, sem publicar
@@ -63,5 +63,21 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (estudo-ti-v5 para estudo-ti-v6).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v6; a próxima é estudo-ti-v7).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
+
+8. Quando um PDF do Estratégia mudar
+O cronograma guarda a impressão digital de cada PDF. O app compara com o arquivo importado em cada aparelho e avisa quando não bate.
+1) Baixe o pacote novo numa pasta separada (ex.: Downloads\TRF1 novo). Não sobrescreva a pasta atual.
+2) Na pasta do pacote, arraste a pasta nova para cima de "Comparar PDFs.bat". Ele lista os PDFs alterados, renomeados, novos e os que não vieram, diz quais estão no cronograma e salva um "Relatorio PDFs <data>.txt" na pasta do pacote.
+3) Nenhum PDF do cronograma mudou: nada muda no app. Troque os outros arquivos se quiser.
+4) Algum PDF do cronograma mudou:
+   a) Mova o PDF antigo para a pasta _Versoes antigas (crie dentro da pasta do pacote, mantendo a pasta da matéria) e copie o novo no lugar dele.
+   b) Mande o relatório para o Claude. Ele confere as páginas novas, ajusta só as sessões que ainda não foram feitas, cria uma sessão de atualização se entrou conteúdo relevante numa aula já estudada e publica o cronograma novo.
+   c) Em cada aparelho: abra o app com internet (ele se atualiza) e reimporte o PDF novo em Mais > Importar PDFs.
+Avisos do app:
+- Faixa no topo "PDF(s) importado(s) em versão diferente da do cronograma": o arquivo do aparelho não é o que o cronograma espera. Reimporte o certo.
+- Na sessão, "PDF desatualizado": as páginas indicadas podem não bater até reimportar.
+- No leitor, aviso de marcações feitas na versão antiga: elas podem ter ficado fora do lugar. Use "Apagar marcações deste PDF" no aviso ou "Limpar PDF" na barra do lápis.
+- Erros com a etiqueta "versão antiga do PDF": a página registrada pode ter mudado. Ache a questão pelo enunciado.
+- Mais > PDFs mostra "Versão diferente do cronograma" (reimporte) e "Fora do cronograma" (podem ser removidos para liberar espaço).

@@ -99,3 +99,5 @@ details summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
 #vPen.on{color:var(--acc)}
 .top .ib{min-width:40px;min-height:40px;font-size:20px;color:var(--mut)}
 .top .ib.warn{color:var(--warn)}
+.vnote{padding:6px 10px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px;color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.vnote[hidden]{display:none}
