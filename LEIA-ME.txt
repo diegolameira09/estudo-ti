@@ -33,6 +33,7 @@ O repositório é público, mas só tem o app e o cronograma (nomes de arquivos 
 - Aba Sessão: siga o número da sessão. Os botões abrem o PDF na página indicada. Marque cada item feito.
 - Errou ou chutou: "+ Erro" (no leitor, já vem com a página aberta).
 - Marcar no PDF: no leitor, toque no lápis. Escolha Caneta, Marca-texto, Texto ou Borracha. Um dedo desenha, dois dedos rolam a página; ↶ desfaz. Toque em Pronto para voltar a rolar normalmente.
+- Marca-texto: arraste sobre a linha. Ele se encaixa na linha do texto e marca reto, com 30% de opacidade (amarelo, verde, vermelho, azul, roxo). Arrastando para baixo, marca várias linhas. Em página sem texto (imagem), faz uma faixa reta na altura do toque.
 - As marcações ficam salvas no app (não dentro do arquivo PDF) e entram no backup.
 - Fechamento: escreva 3 linhas sem consultar e toque em Concluir sessão.
 - Revisões (sessões 5, 10, 15...): a tela lista os erros que voltam naquela sessão; refaça e marque Acertei ou Errei.
@@ -63,7 +64,7 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v6; a próxima é estudo-ti-v7).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v7; a próxima é estudo-ti-v8).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
 
 8. Quando um PDF do Estratégia mudar

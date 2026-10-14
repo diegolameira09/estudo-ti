@@ -607,7 +607,7 @@ async function openPDF(aulaKey, page, ctx = {}) {
   if (V.file !== A.file) {
     $('#vPage').textContent = 'abrindo...';
     try { await V.doc?.destroy(); } catch {}
-    V.doc = null; V.file = null;
+    V.doc = null; V.file = null; V.txt = new Map();
     const data = new Uint8Array(await blob.arrayBuffer());
     V.doc = await pdfjs.getDocument({ data, standardFontDataUrl: './vendor/standard_fonts/', isEvalSupported: false }).promise;
     V.file = A.file; await loadAnn(A.file); await layout();
@@ -640,7 +640,7 @@ async function renderPage(i, g) {
     await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise;
     if (g !== V.gen) return;
     const d = vp.querySelector(`.pg[data-p="${i}"]`); if (!d) return;
-    d.prepend(c); V.rendered.set(i, c); ensureInk(d, i);
+    d.prepend(c); V.rendered.set(i, c); ensureInk(d, i); if (V.tool === 'h') textLines(i);
     if (V.rendered.size > 12) {
       [...V.rendered.keys()].sort((a, b) => Math.abs(b - V.cur) - Math.abs(a - V.cur)).slice(0, V.rendered.size - 12).forEach(k => { V.rendered.get(k)?.remove(); vp.querySelector(`.pg[data-p="${k}"] .ink`)?.remove(); V.rendered.delete(k); });
     }
@@ -670,8 +670,9 @@ let rsz; window.addEventListener('resize', () => { if ($('#viewer').hidden || !V
 
 
 /* ---------------- marcações (caneta, marca-texto, borracha, texto) ---------------- */
-const PEN = ['#DC2626', '#2563EB', '#111827'], HL = ['#FDE047', '#86EFAC', '#F9A8D4'];
-Object.assign(V, { ann: new Map(), annFile: null, tool: null, color: { p: PEN[0], h: HL[0], x: PEN[0] }, undo: [], ptrs: new Map(), stroke: null, pan: null });
+const PEN = ['#DC2626', '#2563EB', '#111827'], HL = ['#FFE600', '#22C55E', '#EF4444', '#3B82F6', '#A855F7'], HA = 0.3;
+const CNOME = { '#FFE600': 'Amarelo', '#22C55E': 'Verde', '#EF4444': 'Vermelho', '#3B82F6': 'Azul', '#A855F7': 'Roxo', '#DC2626': 'Vermelho', '#2563EB': 'Azul', '#111827': 'Preto' };
+Object.assign(V, { ann: new Map(), annFile: null, tool: null, color: { p: PEN[0], h: HL[0], x: PEN[0] }, txt: new Map(), undo: [], ptrs: new Map(), stroke: null, pan: null });
 const akey = (f, p) => `a|${f}|${p}`;
 const aRange = f => IDBKeyRange.bound(`a|${f ?? ''}`, `a|${f ?? ''}￿`);
 async function loadAnn(file) {
@@ -718,12 +719,97 @@ function drawOp(ctx, op, W, H) {
   ctx.strokeStyle = op.c; ctx.lineWidth = op.w * W; ctx.lineCap = op.t === 'h' ? 'butt' : 'round'; ctx.lineJoin = 'round';
   strokePath(ctx, op.pts, W, H); ctx.stroke();
 }
-function drawInk(i) {
+function drawHL(ctx, ops, W, H) {
+  // marca-texto reto: retângulos da mesma cor viram um só caminho, então sobreposição não escurece
+  const g = new Map();
+  for (const op of ops) { const k = op.c + '|' + (op.a ?? HA); if (!g.has(k)) g.set(k, []); g.get(k).push(op); }
+  for (const [k, list] of g) {
+    ctx.globalAlpha = +k.split('|')[1]; ctx.fillStyle = k.split('|')[0]; ctx.beginPath();
+    for (const op of list) for (const [x, y, w, h] of op.r) ctx.rect(x * W, y * H, w * W, h * H);
+    ctx.fill(); ctx.globalAlpha = 1;
+  }
+}
+function drawInk(i, extra) {
   const ink = vp.querySelector(`.pg[data-p="${i}"] .ink`); if (!ink) return;
   const ctx = ink.getContext('2d'); ctx.clearRect(0, 0, ink.width, ink.height);
-  const ops = V.ann.get(i) || [];
+  const ops = [...(V.ann.get(i) || []), ...(extra ? [extra] : [])];
+  drawHL(ctx, ops.filter(o => o.t === 'r'), ink.width, ink.height);
   for (const op of ops.filter(o => o.t === 'h')) drawOp(ctx, op, ink.width, ink.height);
-  for (const op of ops.filter(o => o.t !== 'h')) drawOp(ctx, op, ink.width, ink.height);
+  for (const op of ops.filter(o => o.t !== 'h' && o.t !== 'r')) drawOp(ctx, op, ink.width, ink.height);
+}
+
+/* linhas de texto da página (para o marca-texto se encaixar na linha) */
+let mctx;
+function textLines(p) {
+  if (V.txt.has(p)) return V.txt.get(p);
+  const doc = V.doc; if (!doc) return null;
+  const pr = (async () => {
+    try {
+      const page = await doc.getPage(p); const v = page.getViewport({ scale: 1 });
+      if (v.rotation % 180) return [];
+      const tc = await page.getTextContent(); const W = v.width, H = v.height;
+      mctx ||= document.createElement('canvas').getContext('2d'); mctx.font = '100px sans-serif';
+      const cw = new Map(); const wch = ch => { if (!cw.has(ch)) cw.set(ch, mctx.measureText(ch).width || 50); return cw.get(ch); };
+      const its = [];
+      for (const o of tc.items) {
+        if (!o.str || !o.str.trim() || !(o.width > 0)) continue;
+        const m = pdfjs.Util.transform(v.transform, o.transform);
+        if (Math.abs(m[1]) > 0.02 * Math.abs(m[0]) || Math.abs(m[2]) > 0.02 * Math.abs(m[3]) || m[0] <= 0) continue; // texto girado (marca d'água)
+        const fh = Math.hypot(m[2], m[3]); if (fh < 3) continue;
+        const st = tc.styles[o.fontName] || {};
+        const asc = Math.min(1, Math.max(0.65, st.ascent || 0.8)), dsc = Math.min(0.35, Math.max(0.12, Math.abs(st.descent || 0.22)));
+        const l = m[4], r = m[4] + o.width, chars = [...o.str]; const tot = chars.reduce((a, c) => a + wch(c), 0) || 1;
+        const xs = [l]; let acc = 0; for (const c of chars) { acc += wch(c); xs.push(l + (r - l) * acc / tot); }
+        its.push({ l, r, base: m[5], fh, t: m[5] - asc * fh - 0.08 * fh, b: m[5] + dsc * fh + 0.04 * fh, xs });
+      }
+      its.sort((a, b) => a.base - b.base || a.l - b.l);
+      const lines = [];
+      for (const it of its) { const L = lines[lines.length - 1]; if (L && Math.abs(it.base - L.base) < 0.45 * Math.min(it.fh, L.fh)) L.its.push(it); else lines.push({ base: it.base, fh: it.fh, its: [it] }); }
+      const segs = [];
+      for (const L of lines) {
+        L.its.sort((a, b) => a.l - b.l); let cur = null;
+        for (const it of L.its) {
+          if (cur && it.l - cur.r <= 1.8 * Math.max(it.fh, cur.fh)) { cur.r = Math.max(cur.r, it.r); cur.t = Math.min(cur.t, it.t); cur.b = Math.max(cur.b, it.b); cur.fh = Math.max(cur.fh, it.fh); cur.xs.push(...it.xs); }
+          else { cur = { l: it.l, r: it.r, t: it.t, b: it.b, fh: it.fh, xs: [...it.xs] }; segs.push(cur); }
+        }
+      }
+      const out = segs.map(g => ({ l: g.l / W, r: g.r / W, t: g.t / H, b: g.b / H, xs: [...new Set(g.xs.map(x => x / W))].sort((a, b) => a - b) }));
+      if (V.doc === doc) V.txt.set(p, out);
+      return out;
+    } catch (err) { console.warn(err); if (V.doc === doc) V.txt.set(p, []); return []; }
+  })();
+  V.txt.set(p, pr); return pr;
+}
+function segAt(L, x, y, strict) {
+  const ratio = V.h / V.w; let best = null, bd = Infinity;
+  for (const g of L) {
+    const dy = Math.max(0, g.t - y, y - g.b) * ratio, dx = Math.max(0, g.l - x, x - g.r);
+    if (strict && (dx > 0.03 || dy > 0.6 * (g.b - g.t) * ratio)) continue;
+    const d = dy + 0.5 * dx + (strict ? Math.abs(y - (g.t + g.b) / 2) * ratio * 0.01 : 0);
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+const snapX = (g, x) => { let b = g.xs[0], bd = Infinity; for (const v of g.xs) { const d = Math.abs(v - x); if (d < bd) { bd = d; b = v; } } return b; };
+function hlRects(p, x0, y0, x1, y1) {
+  const L = V.txt.get(p); let out = [];
+  const a = Array.isArray(L) && L.length ? segAt(L, x0, y0, true) : null;
+  if (a) {
+    const b = segAt(L, x1, y1, false) || a;
+    if (a === b) { const l = snapX(a, Math.min(x0, x1)), r = snapX(a, Math.max(x0, x1)); out = [[l, a.t, r - l, a.b - a.t]]; }
+    else {
+      const ia = L.indexOf(a), ib = L.indexOf(b);
+      const [s, e, xs, xe] = ia < ib ? [a, b, x0, x1] : [b, a, x1, x0]; const i0 = Math.min(ia, ib), i1 = Math.max(ia, ib);
+      const lo = Math.min(s.l, e.l), hi = Math.max(s.r, e.r); const sx = snapX(s, xs);
+      out = [[sx, s.t, s.r - sx, s.b - s.t]];
+      for (let k = i0 + 1; k < i1; k++) { const g = L[k]; if (g.r > lo && g.l < hi) out.push([g.l, g.t, g.r - g.l, g.b - g.t]); }
+      const ex = snapX(e, xe); out.push([e.l, e.t, ex - e.l, e.b - e.t]);
+    }
+  } else {
+    // página sem texto (imagem): faixa reta na altura do toque
+    const h = 0.016, l = Math.min(x0, x1); out = [[l, y0 - h / 2, Math.abs(x1 - x0), h]];
+  }
+  return out.filter(q => q[2] > 0.003).map(q => q.map(rnd));
 }
 function pageAt(x, y) {
   const d = document.elementFromPoint(x, y)?.closest('.pg'); if (!d) return null;
@@ -736,6 +822,7 @@ function eraseAt(hit) {
   const R = 0.02, ratio = V.h / V.w;
   const keep = ops.filter(op => {
     if (op.t === 'x') { const lines = String(op.s).split('\n'); const wd = Math.max(...lines.map(l => l.length)) * op.z * 0.6, ht = lines.length * op.z * 1.2 / ratio; return !(hit.nx >= op.x - R && hit.nx <= op.x + wd + R && hit.ny >= op.y - R && hit.ny <= op.y + ht + R); }
+    if (op.t === 'r') return !op.r.some(([x, y, w, h]) => hit.nx >= x - 0.006 && hit.nx <= x + w + 0.006 && hit.ny >= y - 0.004 && hit.ny <= y + h + 0.004);
     for (let k = 0; k < op.pts.length; k += 2) { const dx = op.pts[k] - hit.nx, dy = (op.pts[k + 1] - hit.ny) * ratio; if (dx * dx + dy * dy < (R + op.w / 2) ** 2) return false; }
     return true;
   });
@@ -770,10 +857,15 @@ vp.addEventListener('pointerdown', e => {
   }
   const hit = pageAt(e.clientX, e.clientY); if (!hit) return;
   if (V.tool === 'e') { V.erasing = true; eraseAt(hit); return; }
-  if (V.tool === 'p' || V.tool === 'h') {
+  if (V.tool === 'h') {
+    const ink = ensureInk(hit.d, hit.p); textLines(hit.p);
+    V.stroke = { p: hit.p, ink, hl: true, x0: hit.nx, y0: hit.ny, op: { t: 'r', c: V.color.h, a: HA, r: [] } };
+    return;
+  }
+  if (V.tool === 'p') {
     const ink = ensureInk(hit.d, hit.p); const ctx = ink.getContext('2d');
-    V.stroke = { p: hit.p, ink, ctx, op: { t: V.tool, c: V.color[V.tool], w: V.tool === 'h' ? 0.022 : 0.004, pts: [rnd(hit.nx), rnd(hit.ny)] } };
-    ctx.strokeStyle = V.stroke.op.c; ctx.lineWidth = V.stroke.op.w * ink.width; ctx.lineCap = V.tool === 'h' ? 'butt' : 'round'; ctx.lineJoin = 'round';
+    V.stroke = { p: hit.p, ink, ctx, op: { t: 'p', c: V.color.p, w: 0.004, pts: [rnd(hit.nx), rnd(hit.ny)] } };
+    ctx.strokeStyle = V.stroke.op.c; ctx.lineWidth = V.stroke.op.w * ink.width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   }
 }, { passive: false });
 vp.addEventListener('pointermove', e => {
@@ -787,6 +879,11 @@ vp.addEventListener('pointermove', e => {
   if (V.erasing) { const hit = pageAt(e.clientX, e.clientY); if (hit) eraseAt(hit); return; }
   const s = V.stroke; if (!s) return;
   const r = s.ink.getBoundingClientRect(); const nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  if (s.hl) {
+    s.x1 = nx; s.y1 = ny;
+    if (!s.raf) s.raf = requestAnimationFrame(() => { s.raf = 0; if (V.stroke !== s) return; s.op.r = hlRects(s.p, s.x0, s.y0, s.x1, s.y1); drawInk(s.p, s.op); });
+    return;
+  }
   const P = s.op.pts, lx = P[P.length - 2], ly = P[P.length - 1];
   if (Math.hypot(nx - lx, (ny - ly) * V.h / V.w) < 0.0025) return;
   s.ctx.beginPath(); s.ctx.moveTo(lx * s.ink.width, ly * s.ink.height); s.ctx.lineTo(nx * s.ink.width, ny * s.ink.height); s.ctx.stroke();
@@ -801,6 +898,11 @@ function endPointer(e) {
     const hit = pageAt(pt.x, pt.y); if (hit) textAt(hit, textHit(hit)); return;
   }
   const s = V.stroke; V.stroke = null; if (!s) return;
+  if (s.hl) {
+    if (s.raf) cancelAnimationFrame(s.raf);
+    if (s.x1 != null) s.op.r = hlRects(s.p, s.x0, s.y0, s.x1, s.y1);
+    if (!s.op.r.length) { drawInk(s.p); return; }
+  }
   snapshot(s.p); const ops = V.ann.get(s.p) || []; ops.push(s.op); V.ann.set(s.p, ops); drawInk(s.p); saveAnn(s.p);
 }
 vp.addEventListener('pointerup', endPointer);
@@ -825,7 +927,8 @@ function paintTools() {
   vp.style.touchAction = on ? 'none' : '';
   $$('#vTools [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === V.tool));
   const pal = V.tool === 'h' ? HL : V.tool === 'e' ? [] : PEN;
-  $('#vColors').innerHTML = pal.map(c => `<button class="sw ${V.color[V.tool] === c ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Cor"></button>`).join('');
+  $('#vColors').innerHTML = pal.map(c => `<button class="sw ${V.color[V.tool] === c ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="${CNOME[c] || 'Cor'}" title="${CNOME[c] || ''}"></button>`).join('');
+  if (V.tool === 'h' && V.doc) for (let k = Math.max(1, V.cur - 1); k <= Math.min(V.doc.numPages, V.cur + 2); k++) textLines(k);
 }
 $('#vPen').onclick = () => { V.tool = V.tool ? null : 'p'; paintTools(); };
 $('#vTools').onclick = async e => {
