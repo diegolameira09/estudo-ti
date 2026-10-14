@@ -1,4 +1,4 @@
-const VERSAO = 'estudo-ti-v9';
+const VERSAO = 'estudo-ti-v10';
 const ARQUIVOS = [
 "./",
 "index.html",

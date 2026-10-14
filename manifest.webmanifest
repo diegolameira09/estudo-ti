@@ -1,11 +1,12 @@
 {
+ "id": "./",
  "name": "Estudo TI",
  "short_name": "Estudo TI",
  "description": "Cronograma, leitor de PDF e caderno de erros offline",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",
- "orientation": "portrait",
+ "orientation": "any",
  "background_color": "#F6F6F3",
  "theme_color": "#0F766E",
  "lang": "pt-BR",
