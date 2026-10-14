@@ -586,7 +586,7 @@ async function renderMais() {
     if (d) { const i = +d.dataset.d; const s = new Set(S.set.dias); s.has(i) ? s.delete(i) : s.add(i); if (!s.size) return toast('Escolha ao menos um dia.'); S.set.dias = [...s].sort(); await kvSet('set', S.set); render(); }
   };
   v.onchange = async ev => {
-    if (ev.target.id === 'mDev') { S.set.device = ev.target.value.trim() || (hasFS ? 'pc' : 'celular'); await kvSet('set', S.set); S.syncDirty = true; toast(`Arquivo deste aparelho: ${ownFile()}`); render(); return; }
+    if (ev.target.id === 'mDev') { S.set.device = ev.target.value.trim() || devPadrao(); await kvSet('set', S.set); S.syncDirty = true; toast(`Arquivo deste aparelho: ${ownFile()}`); render(); return; }
     const i = ev.target.dataset.dur; if (i == null) return;
     S.set.durs[+i] = Math.max(1, Math.min(90, +ev.target.value || S.set.durs[+i])); await kvSet('set', S.set);
     if (!T.run) { T.left = S.set.durs[T.ph] * 60; tSave(); } toast('Duração salva');
@@ -943,6 +943,7 @@ $('#vTools').onclick = async e => {
 
 /* ---------------- sincronização entre aparelhos (pasta do Drive + FolderSync) ---------------- */
 const hasFS = 'showDirectoryPicker' in window;
+const devPadrao = () => /iPad|Tablet/i.test(navigator.userAgent) || (/Android/i.test(navigator.userAgent) && !/Mobile/i.test(navigator.userAgent)) ? 'tablet' : /Android|iPhone|Mobile/i.test(navigator.userAgent) ? 'celular' : 'pc';
 const slug = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'aparelho';
 const ownFile = () => `estudo-ti-${slug(S.set.device)}.json`;
 const brHora = isoS => { const d = new Date(isoS); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -1009,7 +1010,7 @@ function syncCard() {
   const ult = S.lastSync ? `Última: ${brHora(S.lastSync)}` : 'Nunca sincronizado';
   if (hasFS) return `<div class="card"><h3>Sincronização</h3>${dev}
    <div class="small" style="margin-top:8px">Pasta: <b>${syncDir ? esc(syncDir.name) : 'nenhuma'}</b>${syncDir ? (S.syncOff ? ' · <span class="warn">sem permissão</span>' : ' · <span class="good">conectada</span>') : ''} · ${ult}</div>
-   <p class="small mut">Escolha a pasta do Google Drive que o FolderSync espelha no celular (ex.: Meu Drive › EstudoTI). O app grava ${esc(ownFile())} nela e mescla sozinho os arquivos dos outros aparelhos, ao abrir, a cada 90 s e depois de cada mudança.</p>
+   <p class="small mut">Escolha a pasta sincronizada: no PC, a pasta EstudoTI do Google Drive; no Android, uma pasta como Documents › EstudoTI que o FolderSync espelha com o Drive (o Android não deixa usar a raiz de Download). Cada aparelho precisa de um nome diferente. O app grava ${esc(ownFile())} nela e mescla sozinho os arquivos dos outros aparelhos, ao abrir, a cada 90 s e depois de cada mudança.</p>
    <div class="row wrap"><button class="btn pri" id="mPasta">${syncDir ? 'Trocar pasta' : 'Escolher pasta'}</button>${syncDir ? '<button class="btn" id="mSyncNow">Sincronizar agora</button><button class="btn bad" id="mSyncOff">Desligar</button>' : ''}</div></div>`;
   return `<div class="card"><h3>Sincronização</h3>${dev}
    <p class="small mut">Sincronizar (também no ⇅ do topo): você escolhe o arquivo do outro aparelho (ex.: estudo-ti-pc.json), o app mescla e salva ${esc(ownFile())} em Downloads. O FolderSync leva os arquivos entre Downloads e a pasta do Drive.</p>
@@ -1034,7 +1035,7 @@ async function init() {
   S.pdfs = new Set(await pdfKeys());
   { const ks = await run('kv', 'readonly', s => s.getAllKeys(IDBKeyRange.bound('pv|', 'pv|\uffff'))); const vs = await run('kv', 'readonly', s => s.getAll(IDBKeyRange.bound('pv|', 'pv|\uffff'))); ks.forEach((k, i) => (S.pv[k.slice(3)] = vs[i])); }
   S.lastBackup = (await kvGet('lastBackup')) || null;
-  S.set.device ||= hasFS ? 'pc' : 'celular'; S.lastSync = (await kvGet('lastSync')) || null; S.syncDirty = true;
+  S.set.device ||= devPadrao(); S.lastSync = (await kvGet('lastSync')) || null; S.syncDirty = true;
   if (hasFS) syncDir = (await kvGet('syncDir')) || null;
   tLoad(); render();
   if (syncDir) syncNow(false, true);

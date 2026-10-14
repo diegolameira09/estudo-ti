@@ -64,7 +64,7 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v8; a próxima é estudo-ti-v9).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v9; a próxima é estudo-ti-v10).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
 
 8. Quando um PDF do Estratégia mudar
