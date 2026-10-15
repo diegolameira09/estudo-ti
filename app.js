@@ -59,11 +59,13 @@ const ets = e => e.upd || e.criado || 0;
 const fileHash = async blob => { const b = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()); return [...new Uint8Array(b)].slice(0, 8).map(x => x.toString(16).padStart(2, '0')).join(''); };
 const outdated = A => !!(A && S.pdfs.has(A.file) && A.ver && S.pv[A.file] && S.pv[A.file] !== A.ver);
 const errOld = e => { const A = aula(e.aula); return !!(A?.ver && e.aver && e.aver !== A.ver); };
-const rev1 = n => (n % 5 === 0 ? n + 5 : Math.ceil(n / 5) * 5);
-const rev2 = n => rev1(n) + 15;
+// a última sessão de revisão (478) não é múltipla de 5: rev1 e rev2 param nela, senão os erros do fim nunca voltam
+const lastRev = () => (lastRev.n ??= S.C.sessoes.findLast(s => s.k === 'R')?.n ?? total());
+const rev1 = n => Math.min(n % 5 === 0 ? n + 5 : Math.ceil(n / 5) * 5, lastRev());
+const rev2 = n => Math.min(rev1(n) + 15, lastRev());
 function status(e) {
   if (!e.r1) return 'Pendente';
-  if (e.r1 === 'Acertei' && e.r2 === 'Acertei') return 'Dominado';
+  if (e.r1 === 'Acertei' && (e.r2 === 'Acertei' || rev1(e.sessao) === rev2(e.sessao))) return 'Dominado';
   if (e.r1 === 'Errei' || e.r2 === 'Errei') return 'Refazer';
   return 'Em revisão';
 }
@@ -232,7 +234,7 @@ function revList(list, key, titulo) {
     <button class="chip ${e[key] === 'Errei' ? 'on' : ''}" data-res="${e.id}" data-k="${key}" data-v="Errei">Errei</button></div></div></div>`).join('');
 }
 function revCard(s) {
-  const l1 = S.erros.filter(e => rev1(e.sessao) === s.n), l2 = S.erros.filter(e => rev2(e.sessao) === s.n);
+  const l1 = S.erros.filter(e => rev1(e.sessao) === s.n), l2 = S.erros.filter(e => rev2(e.sessao) === s.n && rev1(e.sessao) !== s.n);
   let h = `<div class="card"><h3>Revisão</h3><div class="small mut">Refaça no PDF sem olhar a resposta. Erros das sessões ${s.de} a ${s.ate} e, na 2ª passada, de cerca de 1 mês antes.</div>`;
   h += revList(l1, 'r1', '1ª revisão') + revList(l2, 'r2', '2ª passada');
   if (s.ev?.length) {
@@ -330,7 +332,7 @@ function renderErros() {
   h += `<div class="card list">${L.length ? L.map(e => `<div class="li" data-id="${e.id}"><div class="small">${errLine(e)}</div>
     <div>${esc(e.assunto || e.porque || '(sem descrição)')}</div>
     <div class="row wrap small" style="margin-top:4px"><span class="mut">${esc(e.tipo || 'sem tipo')}</span><span class="mut">·</span><span class="${status(e) === 'Dominado' ? 'good' : status(e) === 'Refazer' ? 'bad' : 'mut'}">${status(e)}</span>
-    <span class="mut">· rev. ${rev1(e.sessao)} e ${rev2(e.sessao)}</span>${e.regra ? '' : '<span class="warn">· sem regra</span>'}</div></div>`).join('') : '<div class="empty">Nenhum erro aqui.</div>'}</div>`;
+    <span class="mut">· rev. ${rev1(e.sessao)}${rev2(e.sessao) !== rev1(e.sessao) ? ' e ' + rev2(e.sessao) : ''}</span>${e.regra ? '' : '<span class="warn">· sem regra</span>'}</div></div>`).join('') : '<div class="empty">Nenhum erro aqui.</div>'}</div>`;
   const v = $('#view'); v.innerHTML = h;
   v.onchange = ev => { if (ev.target.id === 'eMat') { S.filtro.mat = ev.target.value; render(); } };
   v.onclick = ev => {
@@ -419,8 +421,8 @@ function parseAI(text) {
 async function aplicarIA(text) {
   const rows = parseAI(text); let upd = 0, novo = 0, ign = 0;
   for (const f of rows) {
-    const ses = parseInt(f[1], 10), pag = String(parseInt(f[5], 10)), q = digits(f[6]);
-    if (!ses || !q) { ign++; continue; }
+    const ses = parseInt(f[1], 10), pg = parseInt(f[5], 10), pag = String(pg), q = digits(f[6]);
+    if (!ses || !pg || !q) { ign++; continue; }
     let e = S.erros.find(x => x.sessao === ses && String(parseInt(x.pagina, 10)) === pag && digits(x.questao) === q);
     if (!e) {
       const k = Object.keys(S.C.aulas).find(k => MAT(S.C.aulas[k].sj) === f[2] && S.C.aulas[k].lab === f[3]);
@@ -489,7 +491,8 @@ async function mergeData(data) {
     const lp = S.prog[n]; const tl = lp?.upd || 0, tr = rp?.upd || 0;
     if (!lp || tr > tl || (tr === tl && rp.done && !lp.done)) { if (JSON.stringify(lp) !== JSON.stringify(rp)) { S.prog[n] = rp; r.ses++; } }
   }
-  await saveProg();
+  // só grava (e marca para sincronizar) se algo mudou: senão dois aparelhos com pasta ficam se regravando a cada 90 s
+  if (r.ses) await saveProg();
   if (data.anot) {
     const local = await anotAll(); const ts = v => (v == null ? -1 : Array.isArray(v) ? 0 : v.u || 0);
     for (const [k, v] of Object.entries(data.anot)) if (ts(v) > ts(local[k])) { await kvSet(k, v); r.pags++; }
@@ -655,7 +658,10 @@ vp.addEventListener('scroll', () => {
   if (!V.doc) return; cancelAnimationFrame(vp.raf);
   vp.raf = requestAnimationFrame(() => { const p = Math.floor((vp.scrollTop + vp.clientHeight * 0.3) / (V.h + 8)) + 1; if (p !== V.cur) { V.cur = Math.max(1, Math.min(V.doc.numPages, p)); paintPage(); } });
 }, { passive: true });
-function closeViewer(fromPop = false) { V.tool = null; paintTools(); $('#viewer').hidden = true; document.body.style.overflow = ''; if (!fromPop && history.state?.viewer) history.back(); }
+function closeViewer(fromPop = false) {
+  V.tool = null; paintTools(); $('#viewer').hidden = true; document.body.style.overflow = ''; if (!fromPop && history.state?.viewer) history.back();
+  if (S.reloadPending) { S.reloadPending = false; location.reload(); }
+}
 window.addEventListener('popstate', () => { if (!$('#viewer').hidden) closeViewer(true); });
 $('#vClose').onclick = () => closeViewer();
 $('#vPrev').onclick = () => goPage(V.cur - 1);
@@ -1047,13 +1053,10 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!tinhaSW) { tinhaSW = true; return; }
     if (recarregou) return;
-    if ($('#viewer').hidden) { recarregou = true; location.reload(); }
-    else toast('Nova versão pronta. Feche o PDF para atualizar.', 6000);
+    recarregou = true;
+    if ($('#viewer').hidden) location.reload();
+    else { S.reloadPending = true; toast('Nova versão pronta. Ela entra quando você fechar o PDF.', 6000); }
   });
-  navigator.serviceWorker.register('sw.js').then(reg => {
-    reg.update?.(); reg.addEventListener('updatefound', () => {
-      const w = reg.installing; w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) toast('Nova versão instalada. Feche e abra o app para usar.', 5000); });
-    });
-  }).catch(() => {});
+  navigator.serviceWorker.register('sw.js').then(reg => reg.update?.()).catch(() => {});
 }
 init().catch(err => { $('#view').innerHTML = `<div class="card bad">Erro ao iniciar: ${esc(err.message)}</div>`; console.error(err); });
