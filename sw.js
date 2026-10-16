@@ -1,4 +1,4 @@
-const VERSAO = 'estudo-ti-v16';
+const VERSAO = 'estudo-ti-v17';
 const ARQUIVOS = [
 "./",
 "index.html",
@@ -42,3 +42,5 @@ self.addEventListener('fetch', e => {
     return res;
   })));
 });
+// o app pergunta a versão instalada para mostrar em Mais
+self.addEventListener('message', e => { if (e.data === 'versao') e.source?.postMessage({ versao: VERSAO }); });

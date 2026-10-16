@@ -713,6 +713,8 @@ async function renderMais() {
   try { const e = await navigator.storage?.estimate?.(); if (e) est = ` · ${(e.usage / 1048576).toFixed(0)} MB usados`; } catch {}
   const v = $('#view');
   v.innerHTML = `<h2>Mais</h2>
+  <div class="card"><div class="row wrap"><div class="sp">Versão do app: <b>${esc(S.versao || '...')}</b><div class="small mut">Cronograma de ${br(S.C.versao)}</div></div>
+   <button class="btn" id="mAtual">Procurar atualização</button></div></div>
   <div class="card"><h3>PDFs</h3><div>${aulas.length - falt.length} de ${aulas.length} importados · ${mb.toFixed(0)} MB</div>
    <p class="small mut">Copie a pasta do pacote para o celular, toque em Importar e selecione os PDFs (pode importar uma pasta de cada vez). Só os arquivos do cronograma entram.</p>
    <div class="row wrap"><button class="btn pri" id="mImp">Importar PDFs</button>${S.pdfs.size ? '<button class="btn bad" id="mDelPdf">Apagar PDFs</button>' : ''}</div>
@@ -742,7 +744,7 @@ async function renderMais() {
    <div class="row wrap" id="mDias">${W.map((d, i) => `<button class="chip ${S.set.dias.includes(i) ? 'on' : ''}" data-d="${i}">${d}</button>`).join('')}</div>
    <label>Minutos: bloco A, pausa, bloco B, fechamento</label>
    <div class="grid2">${S.set.durs.map((m, i) => `<input type="number" inputmode="numeric" min="1" max="90" data-dur="${i}" value="${m}" aria-label="${PH[i]}">`).join('')}</div></div>
-  <p class="small mut">Estudo TI · cronograma de ${br(S.C.versao)} · funciona sem internet depois de instalado.</p>`;
+  <p class="small mut">Estudo TI ${esc(S.versao || '')} · cronograma de ${br(S.C.versao)} · funciona sem internet depois de instalado.</p>`;
   v.onclick = async ev => {
     const id = ev.target.id;
     if (id === 'mImp') $('#pdfInput').click();
@@ -754,6 +756,7 @@ async function renderMais() {
     else if (id === 'mCola') dlgColarIA();
     else if (id === 'mExtr') extrairPendentes(true);
     else if (id === 'mGerar') gerarCaderno();
+    else if (id === 'mAtual') procurarAtualizacao();
     else if (id === 'iaList') {
       const b = ev.target; b.disabled = true; b.textContent = '...';
       try { const ms = await listarModelos(iaCfg()); $('#iaModels').innerHTML = ms.map(m => `<option value="${esc(m)}">`).join(''); toast(ms.length ? `${ms.length} modelos: toque no campo Modelo para escolher.` : 'Nenhum modelo encontrado.'); $('#iaModel').focus(); }
@@ -1260,7 +1263,7 @@ async function init() {
 if ('serviceWorker' in navigator) {
   let tinhaSW = !!navigator.serviceWorker.controller, recarregou = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!tinhaSW) { tinhaSW = true; return; }
+    if (!tinhaSW) { tinhaSW = true; pedirVersao(); return; }
     if (recarregou) return;
     recarregou = true;
     if ($('#viewer').hidden) location.reload();
@@ -1270,6 +1273,21 @@ if ('serviceWorker' in navigator) {
 }
 // o app instalado fica dias aberto em segundo plano (Android): ao voltar, refaz as datas se o dia mudou e procura versão nova
 let swReg = null;
+// versão instalada: quem sabe é o service worker que controla a página (funciona offline)
+function pedirVersao() { try { navigator.serviceWorker?.controller?.postMessage('versao'); } catch {} }
+navigator.serviceWorker?.addEventListener('message', e => {
+  if (!e.data?.versao) return;
+  S.versao = String(e.data.versao).replace(/^estudo-ti-/, '');
+  if (S.tab === 'mais') render();
+});
+pedirVersao();
+async function procurarAtualizacao() {
+  if (!swReg) return toast('Atualização automática indisponível neste navegador.');
+  if (navigator.onLine === false) return toast('Sem internet: conecte para procurar versão nova.');
+  try { await swReg.update(); } catch { return toast('Não consegui falar com o site. Tente de novo com internet.'); }
+  if (swReg.installing || swReg.waiting) toast('Versão nova encontrada. O app recarrega sozinho em instantes.', 5000);
+  else toast(`Você já está na versão mais recente${S.versao ? ' (' + S.versao + ')' : ''}.`, 4000);
+}
 function aoVoltar() {
   if (document.visibilityState !== 'visible') return;
   if (diaRender && diaRender !== todayISO()) render();
