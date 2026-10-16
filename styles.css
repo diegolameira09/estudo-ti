@@ -101,3 +101,14 @@ details summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
 .top .ib.warn{color:var(--warn)}
 .vnote{padding:6px 10px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px;color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .vnote[hidden]{display:none}
+.qg{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+.qb{min-width:40px;min-height:36px;padding:0 6px;border:1px solid var(--line);background:var(--card);border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer}
+.qb.o{background:#DCFCE7;border-color:#15803D;color:#14532D}
+.qb.x{background:#FEE2E2;border-color:#B91C1C;color:#7F1D1D}
+.qb.c{background:#FEF3C7;border-color:#B45309;color:#78350F}
+.qb.o::after{content:" ✓"}
+.qb.x::after{content:" ✗"}
+.qb.c::after{content:" ?"}
+.vgrid{background:var(--card);padding:6px 10px;max-height:40vh;overflow:auto;border-bottom:1px solid var(--line)}
+.vgrid[hidden]{display:none}
+.vbar .chip[hidden]{display:none}

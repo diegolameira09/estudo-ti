@@ -110,6 +110,49 @@ function itemJumps(it) {
 }
 const matTag = k => `<span class="mat" style="background:var(--${k})">${esc(MAT(k))}</span>`;
 
+/* ---------------- grade de questões: ✓ acertei, ✗ errei, ? chutei ---------------- */
+// marcas em S.prog[n].qm[chave][questão]; chave = índice do item ('3') ou da questão inédita da revisão ('e3')
+// ✗ e ? lançam um erro com uid fixo q-<sessão>-<chave>-<questão>, que volta nas revisões como qualquer erro
+const QM = ['', 'o', 'x', 'c'], QNOME = { '': 'sem marca', o: 'acertei', x: 'errei', c: 'chutei' };
+function qNums(q) { const out = []; if (!q?.length) return out; for (let k = q[0]; k <= q[1]; k += q[2] || 1) out.push(k); return out; }
+const qItem = (n, key) => (key[0] === 'e' ? sess(n).ev?.[+key.slice(1)] : sess(n).it?.[+key]);
+const qUid = (n, key, q) => `q-${n}-${key}-${q}`;
+function qGrid(n, key, it) {
+  const ns = qNums(it.q); if (!ns.length) return '';
+  const m = S.prog[n]?.qm?.[key] || {}; const ok = ns.filter(q => m[q] === 'o').length, er = ns.filter(q => m[q] === 'x' || m[q] === 'c').length;
+  return `<div class="qw" data-qn="${n}" data-qk="${key}"><div class="qg">${ns.map(q => `<button type="button" class="qb ${m[q] || ''}" data-q="${q}" aria-label="Questão ${q}: ${QNOME[m[q] || '']}">${q}</button>`).join('')}</div>
+    ${ok + er ? `<div class="small mut">${ok} certa(s) · ${er} errada(s) ou chutada(s) · ${ns.length - ok - er} sem marca</div>` : ''}</div>`;
+}
+async function qErro(n, key, q, st) {
+  const uid = qUid(n, key, q), e = S.erros.find(x => x.uid === uid), it = qItem(n, key);
+  if (st === 'x' || st === 'c') {
+    const tipo = st === 'c' ? 'Chute' : e?.tipo === 'Chute' ? '' : e?.tipo || '';
+    if (e) { if (e.tipo !== tipo) { e.tipo = tipo; e.upd = Date.now(); await errPut(e); } return; }
+    const ne = { data: todayISO(), sessao: n, aula: it.a, pagina: String(it.s), questao: String(q), minha: '', gab: '', tipo, porque: '', assunto: '', banca: '', regra: '', alerta: '', r1: '', r2: '',
+      criado: Date.now(), upd: Date.now(), exp: false, uid, aver: aula(it.a)?.ver, auto: 1 };
+    ne.id = await errPut(ne); S.erros.push(ne);
+  } else if (e) { await errDel(e.id); S.del[uid] = Date.now(); await kvSet('del', S.del); S.erros = S.erros.filter(x => x !== e); }
+}
+async function onQGrid(b) {
+  const w = b.closest('.qw'), n = +w.dataset.qn, key = w.dataset.qk, q = +b.dataset.q, it = qItem(n, key);
+  const pp = (S.prog[n] ??= {}), m = ((pp.qm ??= {})[key] ??= {});
+  const nx = QM[(QM.indexOf(m[q] || '') + 1) % QM.length];
+  const e = S.erros.find(x => x.uid === qUid(n, key, q));
+  if (!nx && e && (e.porque || e.regra || e.minha || e.gab) && !confirm(`Desmarcar a questão ${q}? O erro dela, com o que você já preencheu, será apagado.`)) return;
+  if (nx) m[q] = nx; else delete m[q];
+  // lista toda marcada: marca o item como feito
+  if (key[0] !== 'e' && qNums(it.q).every(k => m[k])) (pp.items ??= [])[+key] = true;
+  pp.upd = Date.now(); await saveProg(); await qErro(n, key, q, nx);
+  $$(`.qw[data-qn="${n}"][data-qk="${key}"]`).forEach(x => (x.outerHTML = qGrid(n, key, it)));
+  const cb = $(`#view input[data-item="${key}"]`); if (cb && pp.items?.[+key]) { cb.checked = true; cb.closest('.item').classList.add('done'); }
+}
+// apagar no formulário um erro vindo da grade também tira a marca da questão
+async function qDesmarca(uid) {
+  const [, n, key, q] = String(uid).split('-'); const m = S.prog[n]?.qm?.[key];
+  if (!uid.startsWith('q-') || !m?.[q]) return;
+  delete m[q]; S.prog[n].upd = Date.now(); await saveProg();
+}
+
 /* ---------------- timer 20/5/20/3 ---------------- */
 const PH = ['Bloco A', 'Pausa', 'Bloco B', 'Fechamento'];
 let T = null; let ac = null; let wl = null;
@@ -218,9 +261,10 @@ function contentCard(s, p) {
     }
     const done = !!p.items?.[i];
     h += `<div class="item ${done ? 'done' : ''}"><input type="checkbox" data-item="${i}" ${done ? 'checked' : ''} aria-label="Feito">
-      <div><div class="txt">${itemText(it)}</div><div class="acts">${itemJumps(it).map(([lab, pg]) => `<button class="chip" data-open="${it.a}" data-page="${pg}" data-i="${i}">${esc(lab)}</button>`).join('')}</div></div></div>`;
+      <div><div class="txt">${itemText(it)}</div><div class="acts">${itemJumps(it).map(([lab, pg]) => `<button class="chip" data-open="${it.a}" data-page="${pg}" data-i="${i}">${esc(lab)}</button>`).join('')}</div>
+      ${it.t !== 'T' ? qGrid(s.n, String(i), it) : ''}</div></div>`;
   });
-  return h + `</div>`;
+  return h + (s.it.some(it => it.t !== 'T') ? `<div class="small mut" style="margin-top:8px">Questões: toque uma vez para ✓ acertei, duas para ✗ errei, três para ? chutei. Errada e chutada viram erro e voltam nas revisões.</div>` : '') + `</div>`;
 }
 function errLine(e) {
   const A = aula(e.aula);
@@ -240,13 +284,14 @@ function revCard(s) {
   h += revList(l1, 'r1', '1ª revisão') + revList(l2, 'r2', '2ª passada');
   if (s.ev?.length) {
     h += `<div class="aulah">Questões inéditas</div>`;
-    s.ev.forEach(e => { const A = aula(e.a); h += `<div class="item"><span></span><div><div class="txt">${esc(MAT(A.sj))}, ${esc(A.lab)}, ${e.t === 'L' ? 'Lista' : 'Comentadas'} p. ${e.s}: <b>${qtxt(e.q)}</b></div>
-      <div class="acts"><button class="chip" data-open="${e.a}" data-page="${e.s}">Abrir p. ${e.s}</button></div></div></div>`; });
+    s.ev.forEach((e, j) => { const A = aula(e.a); h += `<div class="item"><span></span><div><div class="txt">${esc(MAT(A.sj))}, ${esc(A.lab)}, ${e.t === 'L' ? 'Lista' : 'Comentadas'} p. ${e.s}: <b>${qtxt(e.q)}</b></div>
+      <div class="acts"><button class="chip" data-open="${e.a}" data-page="${e.s}">Abrir p. ${e.s}</button></div>${qGrid(s.n, 'e' + j, e)}</div></div>`; });
   }
   return h + `</div>`;
 }
 async function onSessaoClick(e) {
   const b = e.target.closest('button'); if (!b) return;
+  if (b.classList.contains('qb')) return onQGrid(b);
   const n = S.viewN ?? curN();
   if (b.dataset.nav) { S.viewN = Math.min(total(), Math.max(1, n + +b.dataset.nav)); render(); return; }
   if (b.dataset.goto) { S.viewN = null; render(); return; }
@@ -304,7 +349,7 @@ function errForm(pre = {}) {
   let tipo = e.tipo;
   $('#fTipo', f).onclick = ev => { const b = ev.target.closest('[data-t]'); if (!b) return; tipo = tipo === b.dataset.t ? '' : b.dataset.t; $$('#fTipo .chip', f).forEach(x => x.classList.toggle('on', x.dataset.t === tipo)); };
   $('#fCancel', f).onclick = () => $('#dlg').close();
-  if (e.id) $('#fDel', f).onclick = async () => { if (!confirm('Excluir este erro?')) return; await errDel(e.id); if (e.uid) { S.del[e.uid] = Date.now(); await kvSet('del', S.del); } S.erros = S.erros.filter(x => x.id !== e.id); $('#dlg').close(); render(); };
+  if (e.id) $('#fDel', f).onclick = async () => { if (!confirm('Excluir este erro?')) return; await errDel(e.id); if (e.uid) { S.del[e.uid] = Date.now(); await kvSet('del', S.del); await qDesmarca(e.uid); } S.erros = S.erros.filter(x => x.id !== e.id); $('#dlg').close(); render(); };
   $('#fSave', f).onclick = async () => {
     const out = { ...e, sessao: +$('#fSes', f).value || e.sessao, data: $('#fData', f).value || todayISO(), aula: $('#fAula', f).value, pagina: $('#fPag', f).value, questao: $('#fQ', f).value.trim(),
       minha: $('#fMinha', f).value.trim(), gab: $('#fGab', f).value.trim(), tipo, porque: $('#fPorque', f).value.trim(), assunto: $('#fAss', f).value.trim(), banca: $('#fBanca', f).value.trim(),
@@ -619,6 +664,7 @@ async function openPDF(aulaKey, page, ctx = {}) {
   if (!history.state?.viewer) history.pushState({ viewer: 1 }, '');
   $('#vName').textContent = `${MAT(A.sj)} · ${A.lab}`; V.ctx = ctx; V.aula = aulaKey;
   $('#vJump').innerHTML = (ctx.jumps || []).map(([l, p]) => `<button class="chip" data-p="${p}">${esc(l)}</button>`).join('');
+  paintVGrid();
   if (V.file !== A.file) {
     $('#vPage').textContent = 'abrindo...';
     try { await V.doc?.destroy(); } catch {}
@@ -689,6 +735,18 @@ $('#vJump').onclick = e => { const b = e.target.closest('[data-p]'); if (b) goPa
 async function zoom(dz) { const p = V.cur; V.scale = Math.max(1, Math.min(3, +(V.scale + dz).toFixed(2))); await layout(); goPage(p); }
 $('#vZi').onclick = () => zoom(0.25);
 $('#vZo').onclick = () => zoom(-0.25);
+// grade das questões desta aula na sessão de origem, para marcar sem fechar o PDF
+function paintVGrid() {
+  const n = V.ctx?.sess, s = n && sess(n), g = $('#vGrid'); let h = '';
+  if (s) {
+    (s.it || []).forEach((it, i) => { if (it.a === V.aula && it.t !== 'T') h += `<div class="small">${itemText(it)}</div>${qGrid(n, String(i), it)}`; });
+    (s.ev || []).forEach((e, j) => { if (e.a === V.aula) h += `<div class="small">${e.t === 'L' ? 'Lista' : 'Comentadas'} p. ${e.s}: <b>${qtxt(e.q)}</b></div>${qGrid(n, 'e' + j, e)}`; });
+  }
+  g.innerHTML = h; $('#vQ').hidden = !h; if (!h) g.hidden = true;
+  $('#vQ').classList.toggle('on', !g.hidden);
+}
+$('#vQ').onclick = () => { $('#vGrid').hidden = !$('#vGrid').hidden; paintVGrid(); };
+$('#vGrid').onclick = e => { const b = e.target.closest('.qb'); if (b) onQGrid(b); };
 $('#vErr').onclick = () => errForm({ sessao: V.ctx?.sess || curN() || total(), aula: V.aula, pagina: String(V.cur) });
 let rsz; window.addEventListener('resize', () => { if ($('#viewer').hidden || !V.doc) return; clearTimeout(rsz); rsz = setTimeout(async () => { const p = V.cur; await layout(); goPage(p); }, 250); });
 
