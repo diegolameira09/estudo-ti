@@ -1,5 +1,6 @@
 import * as pdfjs from './vendor/pdf.min.mjs';
 import { acharQuestao, acharComentario, limpar } from './extrair.js';
+import { PROVEDORES, MODELO_PADRAO, gerar, listarModelos, paraTudo } from './ia.js';
 pdfjs.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
 
 /* ---------------- utilidades ---------------- */
@@ -46,7 +47,7 @@ const pdfGet = k => run('pdfs', 'readonly', s => s.get(k));
 const pdfKeys = () => run('pdfs', 'readonly', s => s.getAllKeys());
 
 /* ---------------- estado ---------------- */
-const S = { C: null, pv: {}, del: {}, prog: {}, set: { dias: [1, 3, 5], durs: [20, 5, 20, 3] }, erros: [], pdfs: new Set(), tab: 'sessao', viewN: null, lastBackup: null, filtro: { mat: '', st: 'todos' } };
+const S = { C: null, pv: {}, del: {}, prog: {}, set: { dias: [1, 3, 5], durs: [20, 5, 20, 3] }, erros: [], pdfs: new Set(), tab: 'sessao', viewN: null, lastBackup: null, filtro: { mat: '', st: 'todos' }, ia: { prov: 'claude', keys: {}, models: {} } };
 const sess = n => S.C.sessoes[n - 1];
 const aula = k => S.C.aulas[k];
 const MAT = k => (k === 'REV' ? 'Revisão' : S.C.materias[k]);
@@ -392,6 +393,7 @@ function errForm(pre = {}) {
   </details>
   ${e.enun ? `<details><summary class="small mut">Texto extraído do PDF (vai para a IA)</summary><div class="xtxt small">${esc(e.enun)}${e.coment ? '\n\n' + esc(e.coment) : '\n\n(comentário não encontrado: a IA explica sem ele)'}</div></details>`
     : e.xt ? `<div class="small warn" style="margin-top:8px">Não achei esta questão no PDF. Confira página e número.</div>` : ''}
+  ${e.ia?.st === 'falhou' && !e.regra ? `<div class="small warn" style="margin-top:8px">Geração pela IA falhou: ${esc(e.ia.msg)}. Volta na próxima vez que você tocar em Gerar.</div>` : ''}
   <div class="row" style="margin-top:14px">${e.id ? `<button type="button" class="btn bad" id="fDel">Excluir</button>` : ''}<span class="sp"></span>
   <button type="button" class="btn" id="fCancel">Cancelar</button><button type="button" class="btn pri" id="fSave">Salvar</button></div>`;
   let tipo = e.tipo;
@@ -495,24 +497,29 @@ async function exportTudo() {
   const L = S.erros.slice().sort((a, b) => a.sessao - b.sessao || a.id - b.id).map(e => [...rowAO(e), rev1(e.sessao), rev2(e.sessao), e.r1, e.r2, status(e)].map(cell).join('\t'));
   download(`caderno-erros-${todayISO()}.tsv`, '﻿' + [H.join('\t'), ...L].join('\n'), 'text/tab-separated-values');
 }
+// erros no formato de ENTRADA do prompt: um cabeçalho por sessão e aula, um bloco por questão; max = erros por grupo
+function gruposIA(L, max = Infinity) {
+  const groups = new Map();
+  for (const e of L) { const k = `${e.sessao}|${e.aula}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+  const out = [];
+  for (const [, g] of groups) for (let i = 0; i < g.length; i += max) {
+    const parte = g.slice(i, i + max), e0 = parte[0], A = aula(e0.aula);
+    const t = [`SESSÃO ${e0.sessao} | ${br(e0.data)} | ${MAT(A.sj)} | ${A.lab} | ${A.v}`];
+    for (const e of parte) {
+      t.push(`p. ${e.pagina} | q. ${digits(e.questao) || e.questao} | marquei ${e.minha || '?'} | gab ${e.gab || '?'}${e.tipo === 'Chute' ? ' | chute' : ''}`);
+      t.push(`Enunciado: ${e.enun || '(cole o texto ou anexe o print da questão)'}`);
+      if (e.coment) t.push(`Comentário: ${e.coment}`);
+      if (e.porque) t.push(`Dúvida: ${e.porque}`);
+      t.push('');
+    }
+    out.push({ erros: parte, texto: t.join('\n') });
+  }
+  return out;
+}
 async function copiarIA() {
   const L = S.erros.filter(e => !e.regra).sort((a, b) => a.sessao - b.sessao || a.id - b.id);
   if (!L.length) return toast('Todos os erros já têm Regra correta.');
-  const groups = new Map();
-  for (const e of L) { const k = `${e.sessao}|${e.aula}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
-  let out = [];
-  for (const [, g] of groups) {
-    const e0 = g[0], A = aula(e0.aula);
-    out.push(`SESSÃO ${e0.sessao} | ${br(e0.data)} | ${MAT(A.sj)} | ${A.lab} | ${A.v}`);
-    for (const e of g) {
-      out.push(`p. ${e.pagina} | q. ${digits(e.questao) || e.questao} | marquei ${e.minha || '?'} | gab ${e.gab || '?'}${e.tipo === 'Chute' ? ' | chute' : ''}`);
-      out.push(`Enunciado: ${e.enun || '(cole o texto ou anexe o print da questão)'}`);
-      if (e.coment) out.push(`Comentário: ${e.coment}`);
-      if (e.porque) out.push(`Dúvida: ${e.porque}`);
-      out.push('');
-    }
-  }
-  if (await copyText(out.join('\n'))) toast(`${L.length} erros copiados. Cole na conversa com a IA e anexe os prints.`);
+  if (await copyText(gruposIA(L).map(g => g.texto).join('\n'))) toast(`${L.length} erros copiados. Cole na conversa com a IA (print só para questão com figura).`);
 }
 function parseAI(text) {
   const rows = [];
@@ -524,10 +531,20 @@ function parseAI(text) {
   }
   return rows;
 }
-async function aplicarIA(text) {
-  const rows = parseAI(text); let upd = 0, novo = 0, ign = 0;
+// so: lista de erros enviados (geração pela API); aí só casa com eles e nunca cria erro novo
+async function aplicarIA(text, { so } = {}) {
+  const rows = parseAI(text); let upd = 0, novo = 0, ign = 0; const casados = new Set();
   for (const f of rows) {
     const ses = parseInt(f[1], 10), pg = parseInt(f[5], 10), pag = String(pg), q = digits(f[6]);
+    if (so) {
+      const pq = so.filter(x => digits(x.questao) === q && !casados.has(x.uid));
+      const e = pq.find(x => x.sessao === ses && String(parseInt(x.pagina, 10)) === pag) || (pq.length === 1 ? pq[0] : null);
+      if (!e || !f[13]) { ign++; continue; }
+      casados.add(e.uid); upd++;
+      e.banca = f[7] || e.banca || ''; e.assunto = f[8] || e.assunto || ''; if (TIPOS.includes(f[9])) e.tipo = f[9];
+      e.minha ||= f[10] || ''; e.gab ||= f[11] || ''; e.porque ||= f[12] || ''; e.regra = f[13]; e.alerta = f[14] || e.alerta || ''; e.upd = Date.now();
+      await errPut(e); continue;
+    }
     if (!ses || !pg || !q) { ign++; continue; }
     let e = S.erros.find(x => x.sessao === ses && String(parseInt(x.pagina, 10)) === pag && digits(x.questao) === q);
     if (!e) {
@@ -544,8 +561,46 @@ async function aplicarIA(text) {
     const id = await errPut(e); e.id ??= id;
     S.erros = S.erros.filter(x => x.id !== e.id).concat(e);
   }
-  return { upd, novo, ign };
+  return { upd, novo, ign, casados };
 }
+/* ---------------- caderno gerado pela API de IA (só quando o usuário pede) ---------------- */
+// S.ia = { prov, keys: {prov: chave}, models: {prov: modelo} }: fica em kv 'ia', fora do backup e da sincronização
+// cada erro enviado ganha e.ia = { st: 'ok' | 'falhou', em, por, msg }
+const iaCfg = () => ({ prov: S.ia.prov, key: S.ia.keys?.[S.ia.prov] || '', model: S.ia.models?.[S.ia.prov] || MODELO_PADRAO[S.ia.prov] || '' });
+const prontosIA = () => S.erros.filter(e => !e.regra && e.enun).sort((a, b) => a.sessao - b.sessao || a.id - b.id);
+async function gerarCaderno() {
+  const cfg = iaCfg(), nome = PROVEDORES[cfg.prov];
+  if (!cfg.key) return toast(`Cadastre a chave do ${nome} em Mais › IA.`);
+  if (!cfg.model) return toast('Escolha o modelo em Mais › IA (botão Listar).');
+  if (navigator.onLine === false) return toast('Sem internet. Os erros continuam guardados; gere quando tiver conexão.');
+  const L = prontosIA(); if (!L.length) return toast('Nenhum erro pronto: todos já têm Regra correta ou ainda não têm texto extraído.');
+  const G = gruposIA(L, 8); let system;
+  try { system = await (await fetch('prompt-ia.txt')).text(); } catch { return toast('Não achei o prompt do caderno no app.'); }
+  const mil = Math.ceil((G.reduce((t, g) => t + g.texto.length, 0) + system.length * G.length) / 4000);
+  if (!confirm(`Enviar ${L.length} erro(s) em ${G.length} pedido(s) para ${nome} (${cfg.model})?\nCerca de ${mil} mil tokens de entrada, mais a resposta. O custo sai da sua conta no ${nome}.`)) return;
+  const f = $('#dlgForm'), dlg = $('#dlg'); let parar = false, ok = 0, falhou = 0, fim = '';
+  f.innerHTML = `<h3>Gerando caderno</h3><p id="gP" class="mut">Pedido 1 de ${G.length}...</p><div class="row"><span class="sp"></span><button type="button" class="btn" id="gStop">Parar depois deste</button></div>`;
+  $('#gStop', f).onclick = () => { parar = true; $('#gStop', f).disabled = true; $('#gP').textContent += ' (vai parar)'; };
+  dlg.showModal();
+  for (const [i, g] of G.entries()) {
+    if (parar) break;
+    $('#gP').textContent = `Pedido ${i + 1} de ${G.length} (${g.erros.length} erro(s))...`;
+    let msg = '', r = null;
+    try { r = await aplicarIA(await gerar(cfg, system, g.texto), { so: g.erros }); }
+    catch (err) { msg = err.message || String(err); if (paraTudo(err)) { fim = msg; parar = true; } }
+    for (const e of g.erros) {
+      const deu = !!r?.casados.has(e.uid); deu ? ok++ : falhou++;
+      e.ia = { st: deu ? 'ok' : 'falhou', em: Date.now(), por: `${cfg.prov}:${cfg.model}`, msg: deu ? '' : msg || 'a resposta não trouxe esta questão' };
+      e.upd = Date.now(); await errPut(e);
+    }
+  }
+  dlg.close();
+  const resto = prontosIA().length;
+  toast(`${ok} erro(s) com caderno gerado${falhou ? `, ${falhou} falharam` : ''}${resto ? `, ${resto} ainda pendente(s)` : ''}.${fim ? ' ' + fim : ''}`, 7000);
+  render();
+}
+async function salvarIA() { await kvSet('ia', S.ia); }
+
 function dlgColarIA() {
   const f = $('#dlgForm');
   f.innerHTML = `<h3>Colar retorno da IA</h3><p class="small mut">Cole o bloco que a IA devolveu. As linhas são casadas com seus erros por sessão, página e questão; linhas sem correspondência viram erros novos.</p>
@@ -652,6 +707,7 @@ async function renderMais() {
   const novos = S.erros.filter(e => !e.exp).length, semRegra = S.erros.filter(e => !e.regra).length;
   const comTexto = S.erros.filter(e => e.enun).length, pendX = S.erros.filter(podeExtrair).length, naoAchou = S.erros.filter(e => e.xt && !e.enun).length;
   const semPdf = S.erros.filter(e => !e.xt && !(aula(e.aula) && S.pdfs.has(aula(e.aula).file))).length;
+  const cfgIA = iaCfg(), prontos = prontosIA().length, falhouIA = S.erros.filter(e => !e.regra && e.ia?.st === 'falhou').length;
   let pers = '', est = '';
   try { pers = (await navigator.storage?.persisted?.()) ? '<span class="good">armazenamento protegido</span>' : '<span class="warn">armazenamento não protegido</span>'; } catch {}
   try { const e = await navigator.storage?.estimate?.(); if (e) est = ` · ${(e.usage / 1048576).toFixed(0)} MB usados`; } catch {}
@@ -667,7 +723,16 @@ async function renderMais() {
    <div class="row wrap"><button class="btn pri" id="mNovos">Copiar ${novos} erros novos</button><button class="btn" id="mTudo">Baixar tudo (.tsv)</button></div></div>
   <div class="card"><h3>IA (precisa de internet)</h3><p class="small mut">${semRegra} erros sem Regra correta. Use com o prompt do arquivo "Prompt Caderno de Erros.txt".</p>
    <p class="small mut">Texto das questões, tirado dos PDFs sem internet: ${comTexto} com texto${pendX ? `, <span class="warn">${pendX} pendente(s)</span>` : ''}${semPdf ? `, ${semPdf} sem o PDF importado neste aparelho` : ''}${naoAchou ? `, ${naoAchou} não encontrada(s) no PDF` : ''}. Seus dados da marca d'água são removidos.</p>
-   <div class="row wrap"><button class="btn pri" id="mIA">Copiar para a IA</button><button class="btn" id="mCola">Colar retorno da IA</button>${pendX ? `<button class="btn" id="mExtr">Extrair ${pendX} pendente(s)</button>` : ''}</div></div>
+   <div class="row wrap"><button class="btn pri" id="mIA">Copiar para a IA</button><button class="btn" id="mCola">Colar retorno da IA</button>${pendX ? `<button class="btn" id="mExtr">Extrair ${pendX} pendente(s)</button>` : ''}</div>
+   <h3 style="margin-top:14px">Gerar direto pelo app</h3>
+   <p class="small mut">Só roda quando você toca em Gerar. Manda os erros sem Regra correta que já têm texto, em pedidos de até 8, e preenche o caderno sozinho. ${falhouIA ? `<span class="warn">${falhouIA} falharam na última tentativa e voltam na próxima.</span>` : ''}</p>
+   <details ${cfgIA.key ? '' : 'open'}><summary class="small">IA: <b>${esc(PROVEDORES[cfgIA.prov])}</b>${cfgIA.model ? ' · ' + esc(cfgIA.model) : ''}${cfgIA.key ? '' : ' · <span class="warn">sem chave</span>'}</summary>
+    <label for="iaProv">IA</label><select id="iaProv">${Object.entries(PROVEDORES).map(([k, n]) => `<option value="${k}" ${k === cfgIA.prov ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+    <label for="iaKey">Chave da API (fica só neste aparelho: não vai para backup, sincronização nem GitHub)</label><input id="iaKey" type="password" autocomplete="off" spellcheck="false" value="${esc(cfgIA.key)}">
+    <label for="iaModel">Modelo</label><div class="row"><input id="iaModel" type="text" list="iaModels" autocomplete="off" spellcheck="false" value="${esc(cfgIA.model)}" placeholder="toque em Listar"><button type="button" class="btn" id="iaList">Listar</button></div><datalist id="iaModels"></datalist>
+    <p class="small mut">Defina um limite de gasto no painel do provedor: quem pegar este aparelho desbloqueado consegue ver a chave.</p>
+   </details>
+   <div class="row wrap" style="margin-top:8px"><button class="btn pri" id="mGerar" ${prontos ? '' : 'disabled'}>Gerar caderno (${prontos})</button></div></div>
   ${syncCard()}
   <div class="card"><h3>Backup</h3><div class="small">${S.lastBackup ? 'Último: ' + br(S.lastBackup.slice(0, 10)) : '<span class="warn">Nenhum backup feito</span>'} · ${pers}${est}</div>
    <p class="small mut">O backup guarda progresso, erros e marcações (os PDFs não). Salve o arquivo fora do aparelho, no Drive, toda semana.</p>
@@ -688,6 +753,13 @@ async function renderMais() {
     else if (id === 'mIA') copiarIA();
     else if (id === 'mCola') dlgColarIA();
     else if (id === 'mExtr') extrairPendentes(true);
+    else if (id === 'mGerar') gerarCaderno();
+    else if (id === 'iaList') {
+      const b = ev.target; b.disabled = true; b.textContent = '...';
+      try { const ms = await listarModelos(iaCfg()); $('#iaModels').innerHTML = ms.map(m => `<option value="${esc(m)}">`).join(''); toast(ms.length ? `${ms.length} modelos: toque no campo Modelo para escolher.` : 'Nenhum modelo encontrado.'); $('#iaModel').focus(); }
+      catch (err) { toast(err.message || String(err), 5000); }
+      b.disabled = false; b.textContent = 'Listar';
+    }
     else if (id === 'mBk') backup();
     else if (id === 'mRest') { S.bkMode = 'replace'; $('#bkInput').click(); }
     else if (id === 'mMerge') { S.bkMode = 'merge'; $('#bkInput').click(); }
@@ -700,6 +772,9 @@ async function renderMais() {
     if (d) { const i = +d.dataset.d; const s = new Set(S.set.dias); s.has(i) ? s.delete(i) : s.add(i); if (!s.size) return toast('Escolha ao menos um dia.'); S.set.dias = [...s].sort(); await kvSet('set', S.set); render(); }
   };
   v.onchange = async ev => {
+    if (ev.target.id === 'iaProv') { S.ia.prov = ev.target.value; await salvarIA(); render(); return; }
+    if (ev.target.id === 'iaKey') { (S.ia.keys ??= {})[S.ia.prov] = ev.target.value.trim(); await salvarIA(); toast('Chave salva neste aparelho.'); render(); return; }
+    if (ev.target.id === 'iaModel') { (S.ia.models ??= {})[S.ia.prov] = ev.target.value.trim(); await salvarIA(); render(); return; }
     if (ev.target.id === 'mDev') { S.set.device = ev.target.value.trim() || devPadrao(); await kvSet('set', S.set); S.syncDirty = true; toast(`Arquivo deste aparelho: ${ownFile()}`); render(); return; }
     const i = ev.target.dataset.dur; if (i == null) return;
     S.set.durs[+i] = Math.max(1, Math.min(90, +ev.target.value || S.set.durs[+i])); await kvSet('set', S.set);
@@ -1173,6 +1248,7 @@ async function init() {
   S.pdfs = new Set(await pdfKeys());
   { const ks = await run('kv', 'readonly', s => s.getAllKeys(IDBKeyRange.bound('pv|', 'pv|\uffff'))); const vs = await run('kv', 'readonly', s => s.getAll(IDBKeyRange.bound('pv|', 'pv|\uffff'))); ks.forEach((k, i) => (S.pv[k.slice(3)] = vs[i])); }
   S.lastBackup = (await kvGet('lastBackup')) || null;
+  S.ia = { ...S.ia, ...((await kvGet('ia')) || {}) };
   S.set.device ||= devPadrao(); S.lastSync = (await kvGet('lastSync')) || null; S.syncDirty = true;
   if (hasFS) syncDir = (await kvGet('syncDir')) || null;
   tLoad(); render();
