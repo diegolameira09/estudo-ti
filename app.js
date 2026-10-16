@@ -229,7 +229,7 @@ function revList(list, key, titulo) {
   if (!list.length) return `<div class="small mut">${titulo}: nenhum erro lançado.</div>`;
   return `<div class="aulah">${titulo} (${list.length})</div>` + list.map(e => `<div class="item"><span></span><div>
     <div class="txt small">${errLine(e)}</div><div class="small mut">${esc(e.assunto || e.porque || '')}</div>
-    <div class="acts"><button class="chip" data-open="${e.aula}" data-page="${e.pagina}">Abrir p. ${esc(e.pagina)}</button>
+    <div class="acts"><button class="chip" data-open="${esc(e.aula)}" data-page="${esc(e.pagina)}">Abrir p. ${esc(e.pagina)}</button>
     <button class="chip ${e[key] === 'Acertei' ? 'on' : ''}" data-res="${e.id}" data-k="${key}" data-v="Acertei">Acertei</button>
     <button class="chip ${e[key] === 'Errei' ? 'on' : ''}" data-res="${e.id}" data-k="${key}" data-v="Errei">Errei</button></div></div></div>`).join('');
 }
@@ -370,9 +370,16 @@ function rowAO(e) {
   const A = aula(e.aula) || {};
   return [br(e.data), e.sessao, MAT(A.sj), A.lab, A.v, e.pagina, e.questao ? `q.${digits(e.questao) || e.questao}` : '', e.banca, e.assunto, e.tipo, e.minha, e.gab, e.porque, e.regra, e.alerta].map(cell);
 }
+// sem área de transferência, mostra o texto para copiar à mão e só devolve true se o usuário confirmar que copiou
 async function copyText(txt) {
   try { await navigator.clipboard.writeText(txt); return true; }
-  catch { const f = $('#dlgForm'); f.innerHTML = `<h3>Copie o texto</h3><textarea style="min-height:50vh">${esc(txt)}</textarea><div class="row" style="margin-top:10px"><span class="sp"></span><button type="button" class="btn pri" id="xOk">Fechar</button></div>`; $('#xOk', f).onclick = () => $('#dlg').close(); $('#dlg').showModal(); $('textarea', f).select(); return false; }
+  catch {
+    const f = $('#dlgForm'), dlg = $('#dlg'); let ok = false;
+    f.innerHTML = `<h3>Copie o texto</h3><textarea style="min-height:50vh">${esc(txt)}</textarea><div class="row" style="margin-top:10px"><span class="sp"></span><button type="button" class="btn" id="xNo">Cancelar</button><button type="button" class="btn pri" id="xOk">Copiei</button></div>`;
+    $('#xNo', f).onclick = () => dlg.close(); $('#xOk', f).onclick = () => { ok = true; dlg.close(); };
+    dlg.showModal(); $('textarea', f).select();
+    return new Promise(res => dlg.addEventListener('close', () => res(ok), { once: true }));
+  }
 }
 function download(name, text, type) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.append(a); a.click();
@@ -381,7 +388,8 @@ function download(name, text, type) {
 async function exportNovos() {
   const L = S.erros.filter(e => !e.exp).sort((a, b) => a.sessao - b.sessao || a.id - b.id);
   if (!L.length) return toast('Nenhum erro novo para exportar.');
-  if (await copyText(L.map(e => rowAO(e).join('\t')).join('\n'))) toast(`${L.length} linhas copiadas. Cole na coluna A da planilha.`);
+  if (!(await copyText(L.map(e => rowAO(e).join('\t')).join('\n')))) return toast('Nada foi marcado como exportado.');
+  toast(`${L.length} linhas copiadas. Cole na coluna A da planilha.`);
   for (const e of L) { e.exp = true; await errPut(e); }
   render();
 }
@@ -457,7 +465,8 @@ async function backup() {
 async function restaurar(file) {
   let data; try { data = JSON.parse(await file.text()); } catch { return toast('Arquivo inválido.'); }
   if (data?.app !== 'estudo-ti') return toast('Este arquivo não é um backup do Estudo TI.');
-  if (!confirm(`Substituir o progresso e os ${S.erros.length} erros atuais pelo backup de ${br(data.criado.slice(0, 10))} (${data.erros.length} erros)?`)) return;
+  if (!Array.isArray(data.erros)) return toast('Backup incompleto: falta a lista de erros. Nada foi alterado.');
+  if (!confirm(`Substituir o progresso e os ${S.erros.length} erros atuais pelo backup de ${br(String(data.criado || '').slice(0, 10)) || 'data desconhecida'} (${data.erros.length} erros)?`)) return;
   await run('erros', 'readwrite', s => s.clear());
   for (const e of data.erros) await errPut(e);
   if (data.anot) { await anotClear(); for (const [k, v] of Object.entries(data.anot)) await kvSet(k, v); V.ann = new Map(); V.annFile = null; }
@@ -597,8 +606,10 @@ async function renderMais() {
 }
 
 /* ---------------- leitor de PDF ---------------- */
-const V = { doc: null, file: null, aula: null, scale: 1, w: 0, h: 0, cur: 1, ctx: null, obs: null, rendered: new Map(), gen: 0 };
+const V = { doc: null, file: null, aula: null, scale: 1, w: 0, h: 0, cur: 1, ctx: null, obs: null, rendered: new Map(), gen: 0, pr: new Map() };
 const vp = $('#vPages');
+// altura de cada página pela proporção dela (V.pr: altura/largura); a página ainda não renderizada usa a da página 1
+const pgH = p => Math.round(V.w * (V.pr.get(p) ?? V.pr.get(1) ?? 1.414));
 async function openPDF(aulaKey, page, ctx = {}) {
   const A = aula(aulaKey);
   const blob = await pdfGet(A.file);
@@ -610,7 +621,7 @@ async function openPDF(aulaKey, page, ctx = {}) {
   if (V.file !== A.file) {
     $('#vPage').textContent = 'abrindo...';
     try { await V.doc?.destroy(); } catch {}
-    V.doc = null; V.file = null; V.txt = new Map();
+    V.doc = null; V.file = null; V.txt = new Map(); V.pr = new Map();
     const data = new Uint8Array(await blob.arrayBuffer());
     V.doc = await pdfjs.getDocument({ data, standardFontDataUrl: './vendor/standard_fonts/', isEvalSupported: false }).promise;
     V.file = A.file; await loadAnn(A.file); await layout();
@@ -619,12 +630,12 @@ async function openPDF(aulaKey, page, ctx = {}) {
 }
 async function layout() {
   const g = ++V.gen; V.rendered.clear(); V.obs?.disconnect();
-  const p1 = await V.doc.getPage(1); const v1 = p1.getViewport({ scale: 1 });
+  if (!V.pr.has(1)) { const v1 = (await V.doc.getPage(1)).getViewport({ scale: 1 }); V.pr.set(1, v1.height / v1.width); }
   if (g !== V.gen) return;
-  V.w = Math.round(Math.min(vp.clientWidth - 16, 900) * V.scale); V.h = Math.round(V.w * v1.height / v1.width);
+  V.w = Math.round(Math.min(vp.clientWidth - 16, 900) * V.scale); V.h = pgH(1);
   const fr = document.createDocumentFragment();
   for (let i = 1; i <= V.doc.numPages; i++) {
-    const d = document.createElement('div'); d.className = 'pg'; d.dataset.p = i; d.style.width = V.w + 'px'; d.style.height = V.h + 'px';
+    const d = document.createElement('div'); d.className = 'pg'; d.dataset.p = i; d.style.width = V.w + 'px'; d.style.height = pgH(i) + 'px';
     d.innerHTML = `<span class="pn">${i}</span>`; fr.append(d);
   }
   vp.replaceChildren(fr);
@@ -638,11 +649,13 @@ async function renderPage(i, g) {
   try {
     const page = await V.doc.getPage(i); if (g !== V.gen) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const v1 = page.getViewport({ scale: 1 }); const v = page.getViewport({ scale: (V.w / v1.width) * dpr });
+    const v1 = page.getViewport({ scale: 1 }); const v = page.getViewport({ scale: (V.w / v1.width) * dpr }); V.pr.set(i, v1.height / v1.width);
     const c = document.createElement('canvas'); c.width = Math.floor(v.width); c.height = Math.floor(v.height);
     await page.render({ canvasContext: c.getContext('2d'), viewport: v }).promise;
     if (g !== V.gen) return;
     const d = vp.querySelector(`.pg[data-p="${i}"]`); if (!d) return;
+    const h = pgH(i);
+    if (d.offsetHeight !== h) { const acima = d.getBoundingClientRect().top < vp.getBoundingClientRect().top, dh = h - d.offsetHeight; d.style.height = h + 'px'; if (acima) vp.scrollTop += dh; }
     d.prepend(c); V.rendered.set(i, c); ensureInk(d, i); if (V.tool === 'h') textLines(i);
     if (V.rendered.size > 12) {
       [...V.rendered.keys()].sort((a, b) => Math.abs(b - V.cur) - Math.abs(a - V.cur)).slice(0, V.rendered.size - 12).forEach(k => { V.rendered.get(k)?.remove(); vp.querySelector(`.pg[data-p="${k}"] .ink`)?.remove(); V.rendered.delete(k); });
@@ -651,12 +664,16 @@ async function renderPage(i, g) {
 }
 function goPage(p) {
   if (!V.doc) return; p = Math.max(1, Math.min(V.doc.numPages, p | 0));
-  vp.scrollTop = 8 + (p - 1) * (V.h + 8) - 8; V.cur = p; paintPage();
+  const d = vp.querySelector(`.pg[data-p="${p}"]`); if (d) vp.scrollTop += d.getBoundingClientRect().top - vp.getBoundingClientRect().top - 8;
+  V.cur = p; paintPage();
 }
 function paintPage() { $('#vPage').textContent = `p. ${V.cur} de ${V.doc?.numPages || '?'}`; $('#vGo').value = V.cur; }
 vp.addEventListener('scroll', () => {
   if (!V.doc) return; cancelAnimationFrame(vp.raf);
-  vp.raf = requestAnimationFrame(() => { const p = Math.floor((vp.scrollTop + vp.clientHeight * 0.3) / (V.h + 8)) + 1; if (p !== V.cur) { V.cur = Math.max(1, Math.min(V.doc.numPages, p)); paintPage(); } });
+  vp.raf = requestAnimationFrame(() => {
+    const r = vp.getBoundingClientRect(), d = document.elementFromPoint(r.left + r.width / 2, r.top + r.height * 0.3)?.closest('.pg');
+    if (d && +d.dataset.p !== V.cur) { V.cur = +d.dataset.p; paintPage(); }
+  });
 }, { passive: true });
 function closeViewer(fromPop = false) {
   V.tool = null; paintTools(); $('#viewer').hidden = true; document.body.style.overflow = ''; if (!fromPop && history.state?.viewer) history.back();
@@ -702,7 +719,7 @@ function ensureInk(d, i) {
   let ink = d.querySelector('canvas.ink');
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
   if (!ink) { ink = document.createElement('canvas'); ink.className = 'ink'; d.append(ink); }
-  const w = Math.floor(V.w * dpr), h = Math.floor(V.h * dpr);
+  const w = Math.floor(V.w * dpr), h = Math.floor(pgH(i) * dpr);
   if (ink.width !== w || ink.height !== h) { ink.width = w; ink.height = h; }
   drawInk(i);
   return ink;
@@ -786,8 +803,8 @@ function textLines(p) {
   })();
   V.txt.set(p, pr); return pr;
 }
-function segAt(L, x, y, strict) {
-  const ratio = V.h / V.w; let best = null, bd = Infinity;
+function segAt(L, x, y, strict, ratio) {
+  let best = null, bd = Infinity;
   for (const g of L) {
     const dy = Math.max(0, g.t - y, y - g.b) * ratio, dx = Math.max(0, g.l - x, x - g.r);
     if (strict && (dx > 0.03 || dy > 0.6 * (g.b - g.t) * ratio)) continue;
@@ -798,10 +815,10 @@ function segAt(L, x, y, strict) {
 }
 const snapX = (g, x) => { let b = g.xs[0], bd = Infinity; for (const v of g.xs) { const d = Math.abs(v - x); if (d < bd) { bd = d; b = v; } } return b; };
 function hlRects(p, x0, y0, x1, y1) {
-  const L = V.txt.get(p); let out = [];
-  const a = Array.isArray(L) && L.length ? segAt(L, x0, y0, true) : null;
+  const L = V.txt.get(p), ra = pgH(p) / V.w; let out = [];
+  const a = Array.isArray(L) && L.length ? segAt(L, x0, y0, true, ra) : null;
   if (a) {
-    const b = segAt(L, x1, y1, false) || a;
+    const b = segAt(L, x1, y1, false, ra) || a;
     if (a === b) { const l = snapX(a, Math.min(x0, x1)), r = snapX(a, Math.max(x0, x1)); out = [[l, a.t, r - l, a.b - a.t]]; }
     else {
       const ia = L.indexOf(a), ib = L.indexOf(b);
@@ -825,7 +842,7 @@ function pageAt(x, y) {
 const rnd = v => Math.round(v * 10000) / 10000;
 function eraseAt(hit) {
   const ops = V.ann.get(hit.p); if (!ops?.length) return false;
-  const R = 0.02, ratio = V.h / V.w;
+  const R = 0.02, ratio = pgH(hit.p) / V.w;
   const keep = ops.filter(op => {
     if (op.t === 'x') { const lines = String(op.s).split('\n'); const wd = Math.max(...lines.map(l => l.length)) * op.z * 0.6, ht = lines.length * op.z * 1.2 / ratio; return !(hit.nx >= op.x - R && hit.nx <= op.x + wd + R && hit.ny >= op.y - R && hit.ny <= op.y + ht + R); }
     if (op.t === 'r') return !op.r.some(([x, y, w, h]) => hit.nx >= x - 0.006 && hit.nx <= x + w + 0.006 && hit.ny >= y - 0.004 && hit.ny <= y + h + 0.004);
@@ -850,7 +867,7 @@ function textAt(hit, existing) {
   $('#dlg').showModal(); setTimeout(() => $('#tTxt', f).focus(), 50);
 }
 function textHit(hit) {
-  const ratio = V.h / V.w;
+  const ratio = pgH(hit.p) / V.w;
   return (V.ann.get(hit.p) || []).find(op => op.t === 'x' && hit.nx >= op.x - 0.01 && hit.nx <= op.x + String(op.s).length * op.z * 0.6 + 0.01 && hit.ny >= op.y - 0.01 && hit.ny <= op.y + String(op.s).split('\n').length * op.z * 1.2 / ratio + 0.01);
 }
 vp.addEventListener('pointerdown', e => {
@@ -891,7 +908,7 @@ vp.addEventListener('pointermove', e => {
     return;
   }
   const P = s.op.pts, lx = P[P.length - 2], ly = P[P.length - 1];
-  if (Math.hypot(nx - lx, (ny - ly) * V.h / V.w) < 0.0025) return;
+  if (Math.hypot(nx - lx, (ny - ly) * pgH(s.p) / V.w) < 0.0025) return;
   s.ctx.beginPath(); s.ctx.moveTo(lx * s.ink.width, ly * s.ink.height); s.ctx.lineTo(nx * s.ink.width, ny * s.ink.height); s.ctx.stroke();
   P.push(rnd(nx), rnd(ny));
 }, { passive: false });
