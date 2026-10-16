@@ -1,4 +1,5 @@
 import * as pdfjs from './vendor/pdf.min.mjs';
+import { acharQuestao, acharComentario, limpar } from './extrair.js';
 pdfjs.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
 
 /* ---------------- utilidades ---------------- */
@@ -130,7 +131,7 @@ async function qErro(n, key, q, st) {
     if (e) { if (e.tipo !== tipo) { e.tipo = tipo; e.upd = Date.now(); await errPut(e); } return; }
     const ne = { data: todayISO(), sessao: n, aula: it.a, pagina: String(it.s), questao: String(q), minha: '', gab: '', tipo, porque: '', assunto: '', banca: '', regra: '', alerta: '', r1: '', r2: '',
       criado: Date.now(), upd: Date.now(), exp: false, uid, aver: aula(it.a)?.ver, auto: 1 };
-    ne.id = await errPut(ne); S.erros.push(ne);
+    ne.id = await errPut(ne); S.erros.push(ne); extrairDepois(ne);
   } else if (e) { await errDel(e.id); S.del[uid] = Date.now(); await kvSet('del', S.del); S.erros = S.erros.filter(x => x !== e); }
 }
 async function onQGrid(b) {
@@ -146,6 +147,51 @@ async function onQGrid(b) {
   $$(`.qw[data-qn="${n}"][data-qk="${key}"]`).forEach(x => (x.outerHTML = qGrid(n, key, it)));
   const cb = $(`#view input[data-item="${key}"]`); if (cb && pp.items?.[+key]) { cb.checked = true; cb.closest('.item').classList.add('done'); }
 }
+/* ---------------- texto da questão extraído do PDF (offline), para a IA ---------------- */
+// cada erro guarda enun (enunciado), coment (comentário e gabarito), xt (quando extraiu) e xv (versão do PDF usada)
+const XD = { file: null, doc: null, cache: null };
+let comCMap = null;
+const comC = () => (comCMap ??= new Map(S.C.sessoes.flatMap(s => (s.it || []).filter(it => it.c).map(it => [it.a + '|' + it.s, it.c]))));
+async function docX(file) {
+  if (XD.file !== file) {
+    try { await XD.doc?.destroy(); } catch {}
+    XD.file = XD.doc = null; const blob = await pdfGet(file); if (!blob) return null;
+    XD.doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), standardFontDataUrl: './vendor/standard_fonts/', isEvalSupported: false }).promise;
+    XD.file = file; XD.cache = new Map();
+  }
+  return XD;
+}
+// item do cronograma de onde veio o erro: o da grade, ou a lista da mesma aula que contém o número e começa antes da página
+function itemDoErro(e) {
+  if (String(e.uid).startsWith('q-')) { const [, n, key] = e.uid.split('-'); const it = sess(+n) && qItem(+n, key); if (it) return it; }
+  const q = +digits(e.questao), pg = +e.pagina || Infinity; let best = null;
+  for (const s of S.C.sessoes) for (const it of [...(s.it || []), ...(s.ev || [])])
+    if (it.t !== 'T' && it.a === e.aula && q >= it.q[0] && q <= it.q[1] && it.s <= pg && (!best || it.s > best.s)) best = it;
+  return best;
+}
+const podeExtrair = e => !e.xt && !!aula(e.aula) && S.pdfs.has(aula(e.aula).file) && !!digits(e.questao);
+async function extrairErro(e0) {
+  const e = S.erros.find(x => x.uid === e0.uid) || e0, A = aula(e.aula), q = +digits(e.questao);
+  if (!A || !q || !S.pdfs.has(A.file)) return false;
+  const X = await docX(A.file); if (!X) return false;
+  const it = itemDoErro(e), en = await acharQuestao(X.doc, it?.s ?? (+e.pagina || 1), q, { cache: X.cache });
+  let co = null;
+  if (en && it?.t === 'L') { const cp = it.c ?? comC().get(it.a + '|' + it.s); if (cp) co = await acharComentario(X.doc, cp, q, en.texto, { cache: X.cache }); }
+  const nomes = [...(en?.nomes || []), ...(co?.nomes || [])];
+  e.enun = en ? limpar(en.texto, nomes) : ''; e.coment = co ? limpar(co.texto, nomes) : ''; e.xt = Date.now(); e.xv = A.ver;
+  if (en && e.auto && String(en.pag) !== String(e.pagina)) e.pagina = String(en.pag);
+  e.upd = Date.now(); await errPut(e); return !!en;
+}
+let xFila = Promise.resolve();
+const extrairDepois = e => { xFila = xFila.then(() => extrairErro(e)).catch(err => console.warn('extrair', err)); return xFila; };
+async function extrairPendentes(avisar = false) {
+  const L = S.erros.filter(podeExtrair); if (!L.length) { if (avisar) toast('Nenhum erro pendente de extração (ou falta importar o PDF).'); return; }
+  if (avisar) toast(`Extraindo ${L.length} enunciado(s) dos PDFs...`, 4000);
+  let ok = 0; for (const e of L) { await extrairDepois(e); if (S.erros.find(x => x.uid === e.uid)?.enun) ok++; }
+  if (avisar) toast(`${ok} de ${L.length} enunciado(s) extraído(s).`, 4000);
+  if (S.tab !== 'sessao') render();
+}
+
 // apagar no formulário um erro vindo da grade também tira a marca da questão
 async function qDesmarca(uid) {
   const [, n, key, q] = String(uid).split('-'); const m = S.prog[n]?.qm?.[key];
@@ -344,6 +390,8 @@ function errForm(pre = {}) {
   <div class="grid2"><div><label>Resultado rev. 1</label><select id="fR1">${['', 'Acertei', 'Errei'].map(v => `<option ${e.r1 === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
   <div><label>Resultado rev. 2</label><select id="fR2">${['', 'Acertei', 'Errei'].map(v => `<option ${e.r2 === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>
   </details>
+  ${e.enun ? `<details><summary class="small mut">Texto extraído do PDF (vai para a IA)</summary><div class="xtxt small">${esc(e.enun)}${e.coment ? '\n\n' + esc(e.coment) : '\n\n(comentário não encontrado: a IA explica sem ele)'}</div></details>`
+    : e.xt ? `<div class="small warn" style="margin-top:8px">Não achei esta questão no PDF. Confira página e número.</div>` : ''}
   <div class="row" style="margin-top:14px">${e.id ? `<button type="button" class="btn bad" id="fDel">Excluir</button>` : ''}<span class="sp"></span>
   <button type="button" class="btn" id="fCancel">Cancelar</button><button type="button" class="btn pri" id="fSave">Salvar</button></div>`;
   let tipo = e.tipo;
@@ -356,8 +404,11 @@ function errForm(pre = {}) {
       regra: $('#fRegra', f).value.trim(), alerta: $('#fAlerta', f).value.trim(), r1: $('#fR1', f).value, r2: $('#fR2', f).value, upd: Date.now() };
     if (!out.pagina || !out.questao) { toast('Informe página e número da questão.'); return; }
     if (!out.id) { delete out.id; out.criado = Date.now(); out.exp = false; out.uid = newUid(); out.aver = aula(out.aula)?.ver; }
+    const mudou = !e.id || e.aula !== out.aula || String(e.pagina) !== String(out.pagina) || digits(e.questao) !== digits(out.questao);
+    if (mudou) { out.xt = 0; out.enun = out.coment = ''; }
     const id = await errPut(out); out.id = out.id ?? id;
     S.erros = S.erros.filter(x => x.id !== out.id).concat(out);
+    if (mudou) extrairDepois(out);
     $('#dlg').close(); toast('Erro salvo'); render();
   };
   $('#dlg').showModal();
@@ -455,7 +506,8 @@ async function copiarIA() {
     out.push(`SESSÃO ${e0.sessao} | ${br(e0.data)} | ${MAT(A.sj)} | ${A.lab} | ${A.v}`);
     for (const e of g) {
       out.push(`p. ${e.pagina} | q. ${digits(e.questao) || e.questao} | marquei ${e.minha || '?'} | gab ${e.gab || '?'}${e.tipo === 'Chute' ? ' | chute' : ''}`);
-      out.push('Enunciado: (cole o texto ou anexe o print da questão)');
+      out.push(`Enunciado: ${e.enun || '(cole o texto ou anexe o print da questão)'}`);
+      if (e.coment) out.push(`Comentário: ${e.coment}`);
       if (e.porque) out.push(`Dúvida: ${e.porque}`);
       out.push('');
     }
@@ -598,6 +650,8 @@ async function renderMais() {
   const desat = aulas.filter(outdated); const nomes = new Set(aulas.map(a => a.file)); const orf = [...S.pdfs].filter(f => !nomes.has(f));
   const mb = aulas.filter(a => S.pdfs.has(a.file)).reduce((t, a) => t + a.size, 0) / 1048576;
   const novos = S.erros.filter(e => !e.exp).length, semRegra = S.erros.filter(e => !e.regra).length;
+  const comTexto = S.erros.filter(e => e.enun).length, pendX = S.erros.filter(podeExtrair).length, naoAchou = S.erros.filter(e => e.xt && !e.enun).length;
+  const semPdf = S.erros.filter(e => !e.xt && !(aula(e.aula) && S.pdfs.has(aula(e.aula).file))).length;
   let pers = '', est = '';
   try { pers = (await navigator.storage?.persisted?.()) ? '<span class="good">armazenamento protegido</span>' : '<span class="warn">armazenamento não protegido</span>'; } catch {}
   try { const e = await navigator.storage?.estimate?.(); if (e) est = ` · ${(e.usage / 1048576).toFixed(0)} MB usados`; } catch {}
@@ -612,7 +666,8 @@ async function renderMais() {
   <div class="card"><h3>Planilha</h3><p class="small mut">Complete os erros com a IA antes de exportar: o que já foi exportado não volta para a planilha sozinho.</p>
    <div class="row wrap"><button class="btn pri" id="mNovos">Copiar ${novos} erros novos</button><button class="btn" id="mTudo">Baixar tudo (.tsv)</button></div></div>
   <div class="card"><h3>IA (precisa de internet)</h3><p class="small mut">${semRegra} erros sem Regra correta. Use com o prompt do arquivo "Prompt Caderno de Erros.txt".</p>
-   <div class="row wrap"><button class="btn pri" id="mIA">Copiar para a IA</button><button class="btn" id="mCola">Colar retorno da IA</button></div></div>
+   <p class="small mut">Texto das questões, tirado dos PDFs sem internet: ${comTexto} com texto${pendX ? `, <span class="warn">${pendX} pendente(s)</span>` : ''}${semPdf ? `, ${semPdf} sem o PDF importado neste aparelho` : ''}${naoAchou ? `, ${naoAchou} não encontrada(s) no PDF` : ''}. Seus dados da marca d'água são removidos.</p>
+   <div class="row wrap"><button class="btn pri" id="mIA">Copiar para a IA</button><button class="btn" id="mCola">Colar retorno da IA</button>${pendX ? `<button class="btn" id="mExtr">Extrair ${pendX} pendente(s)</button>` : ''}</div></div>
   ${syncCard()}
   <div class="card"><h3>Backup</h3><div class="small">${S.lastBackup ? 'Último: ' + br(S.lastBackup.slice(0, 10)) : '<span class="warn">Nenhum backup feito</span>'} · ${pers}${est}</div>
    <p class="small mut">O backup guarda progresso, erros e marcações (os PDFs não). Salve o arquivo fora do aparelho, no Drive, toda semana.</p>
@@ -632,6 +687,7 @@ async function renderMais() {
     else if (id === 'mTudo') exportTudo();
     else if (id === 'mIA') copiarIA();
     else if (id === 'mCola') dlgColarIA();
+    else if (id === 'mExtr') extrairPendentes(true);
     else if (id === 'mBk') backup();
     else if (id === 'mRest') { S.bkMode = 'replace'; $('#bkInput').click(); }
     else if (id === 'mMerge') { S.bkMode = 'merge'; $('#bkInput').click(); }
@@ -1122,6 +1178,7 @@ async function init() {
   tLoad(); render();
   if (syncDir) syncNow(false, true);
   hashPendentes();
+  setTimeout(() => extrairPendentes().catch(err => console.warn('extrair', err)), 4000);
   try { if (navigator.storage?.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch {}
 }
 if ('serviceWorker' in navigator) {

@@ -40,7 +40,9 @@ O repositório é público, mas só tem o app e o cronograma (nomes de arquivos 
 - Revisões (sessões 5, 10, 15...): a tela lista os erros que voltam naquela sessão; refaça e marque Acertei ou Errei.
 
 5. IA e planilha (opcional, com internet)
-- Mais > Copiar para a IA: cole na conversa que tem o prompt do "Prompt Caderno de Erros.txt" e anexe os prints.
+- O app tira sozinho, do PDF importado e sem internet, o texto de cada questão errada: enunciado, comentário do professor e gabarito. Seu nome e o número da marca d'água são removidos. Dá para estudar dias offline e mandar tudo depois. Em Mais > IA aparece quantas questões já têm texto; "Extrair pendentes" processa as que faltam (por exemplo, erros que vieram de outro aparelho).
+- No erro (aba Erros), "Texto extraído do PDF" mostra exatamente o que vai para a IA. Questão com figura vai sem a figura: anexe o print nesse caso.
+- Mais > Copiar para a IA: cole na conversa que tem o prompt do "Prompt Caderno de Erros.txt". Os textos já vão junto; print só para questão com figura.
 - Copie o bloco que a IA devolver e use Mais > Colar retorno da IA. O app completa Assunto, Regra correta e Alerta.
 - Mais > Copiar erros novos: cola na planilha "Caderno de Erros TI.xlsx", coluna A da primeira linha vazia.
 - Faça a IA antes de exportar: o que já foi exportado não é reenviado.
@@ -65,7 +67,7 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v14; a próxima é estudo-ti-v15).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v15; a próxima é estudo-ti-v16).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
 
 8. Quando um PDF do Estratégia mudar

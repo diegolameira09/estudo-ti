@@ -1,9 +1,10 @@
-const VERSAO = 'estudo-ti-v14';
+const VERSAO = 'estudo-ti-v15';
 const ARQUIVOS = [
 "./",
 "index.html",
 "styles.css",
 "app.js",
+"extrair.js",
 "cronograma.json",
 "manifest.webmanifest",
 "icons/icon-192.png",

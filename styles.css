@@ -112,3 +112,4 @@ details summary{cursor:pointer;min-height:36px;display:flex;align-items:center}
 .vgrid{background:var(--card);padding:6px 10px;max-height:40vh;overflow:auto;border-bottom:1px solid var(--line)}
 .vgrid[hidden]{display:none}
 .vbar .chip[hidden]{display:none}
+.xtxt{white-space:pre-wrap;max-height:40vh;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px}
