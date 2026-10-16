@@ -1,0 +1,8 @@
+# Proteção: o repositório é público e só pode ter código.
+# Nunca publicar PDFs (material protegido, marca d'água com dados pessoais),
+# backups, arquivos de sincronização ou exportações do caderno.
+*.pdf
+estudo-ti-*.json
+caderno-erros-*.tsv
+Relatorio PDFs*.txt
+*.xlsx
