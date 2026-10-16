@@ -163,8 +163,9 @@ function paintTop() {
 }
 function setTab(t) { S.tab = t; $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); render(); window.scrollTo(0, 0); }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { if (b.dataset.tab === 'sessao') S.viewN = null; setTab(b.dataset.tab); } });
+let diaRender = null;
 function render() {
-  paintTop();
+  diaRender = todayISO(); paintTop();
   ({ sessao: renderSessao, erros: renderErros, crono: renderCrono, mais: renderMais })[S.tab]();
 }
 
@@ -1074,6 +1075,16 @@ if ('serviceWorker' in navigator) {
     if ($('#viewer').hidden) location.reload();
     else { S.reloadPending = true; toast('Nova versão pronta. Ela entra quando você fechar o PDF.', 6000); }
   });
-  navigator.serviceWorker.register('sw.js').then(reg => reg.update?.()).catch(() => {});
+  navigator.serviceWorker.register('sw.js').then(reg => { swReg = reg; reg.update?.(); }).catch(() => {});
 }
+// o app instalado fica dias aberto em segundo plano (Android): ao voltar, refaz as datas se o dia mudou e procura versão nova
+let swReg = null;
+function aoVoltar() {
+  if (document.visibilityState !== 'visible') return;
+  if (diaRender && diaRender !== todayISO()) render();
+  swReg?.update?.().catch(() => {});
+}
+document.addEventListener('visibilitychange', aoVoltar);
+window.addEventListener('pageshow', aoVoltar);
+setInterval(() => { if (document.visibilityState === 'visible' && diaRender && diaRender !== todayISO()) render(); }, 60000);
 init().catch(err => { $('#view').innerHTML = `<div class="card bad">Erro ao iniciar: ${esc(err.message)}</div>`; console.error(err); });
