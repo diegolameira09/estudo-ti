@@ -122,8 +122,23 @@ const qUid = (n, key, q) => `q-${n}-${key}-${q}`;
 function qGrid(n, key, it) {
   const ns = qNums(it.q); if (!ns.length) return '';
   const m = S.prog[n]?.qm?.[key] || {}; const ok = ns.filter(q => m[q] === 'o').length, er = ns.filter(q => m[q] === 'x' || m[q] === 'c').length;
+  // errada ou chutada: linha opcional para tocar a alternativa que marquei (vai para a IA como "marquei X")
+  const linhas = ns.filter(q => m[q] === 'x' || m[q] === 'c').map(q => {
+    const e = S.erros.find(x => x.uid === qUid(n, key, q)); if (!e) return '';
+    return `<div class="qr"><span class="small mut">q.${q} marquei</span>${qLetras(it, e).map(l => `<button type="button" class="ql ${e.minha === l ? 'on' : ''}" data-q="${q}" data-l="${l}" aria-label="Marquei ${l} na questão ${q}">${l}</button>`).join('')}</div>`;
+  }).join('');
   return `<div class="qw" data-qn="${n}" data-qk="${key}"><div class="qg">${ns.map(q => `<button type="button" class="qb ${m[q] || ''}" data-q="${q}" aria-label="Questão ${q}: ${QNOME[m[q] || '']}">${q}</button>`).join('')}</div>
-    ${ok + er ? `<div class="small mut">${ok} certa(s) · ${er} errada(s) ou chutada(s) · ${ns.length - ok - er} sem marca</div>` : ''}</div>`;
+    ${linhas}${ok + er ? `<div class="small mut">${ok} certa(s) · ${er} errada(s) ou chutada(s) · ${ns.length - ok - er} sem marca</div>` : ''}</div>`;
+}
+// Cebraspe é Certo ou Errado; as outras bancas, A a E
+const qLetras = (it, e) => (/CEBRASPE|CESPE/i.test(`${it.ti || ''} ${(e.enun || '').slice(0, 200)}`) ? ['C', 'E'] : ['A', 'B', 'C', 'D', 'E']);
+function qRepaint(n, key) {
+  const it = qItem(n, key); if (!it) return;
+  $$(`.qw[data-qn="${n}"][data-qk="${key}"]`).forEach(x => (x.outerHTML = qGrid(n, key, it)));
+}
+async function onQLetra(b) {
+  const w = b.closest('.qw'), n = +w.dataset.qn, key = w.dataset.qk, e = S.erros.find(x => x.uid === qUid(n, key, +b.dataset.q)); if (!e) return;
+  e.minha = e.minha === b.dataset.l ? '' : b.dataset.l; e.upd = Date.now(); await errPut(e); qRepaint(n, key);
 }
 async function qErro(n, key, q, st) {
   const uid = qUid(n, key, q), e = S.erros.find(x => x.uid === uid), it = qItem(n, key);
@@ -145,7 +160,7 @@ async function onQGrid(b) {
   // lista toda marcada: marca o item como feito
   if (key[0] !== 'e' && qNums(it.q).every(k => m[k])) (pp.items ??= [])[+key] = true;
   pp.upd = Date.now(); await saveProg(); await qErro(n, key, q, nx);
-  $$(`.qw[data-qn="${n}"][data-qk="${key}"]`).forEach(x => (x.outerHTML = qGrid(n, key, it)));
+  qRepaint(n, key);
   const cb = $(`#view input[data-item="${key}"]`); if (cb && pp.items?.[+key]) { cb.checked = true; cb.closest('.item').classList.add('done'); }
 }
 /* ---------------- texto da questão extraído do PDF (offline), para a IA ---------------- */
@@ -181,7 +196,10 @@ async function extrairErro(e0) {
   const nomes = [...(en?.nomes || []), ...(co?.nomes || [])];
   e.enun = en ? limpar(en.texto, nomes) : ''; e.coment = co ? limpar(co.texto, nomes) : ''; e.xt = Date.now(); e.xv = A.ver;
   if (en && e.auto && String(en.pag) !== String(e.pagina)) e.pagina = String(en.pag);
-  e.upd = Date.now(); await errPut(e); return !!en;
+  e.upd = Date.now(); await errPut(e);
+  // com o texto em mãos, a grade pode trocar A a E por C e E (Cebraspe)
+  if (String(e.uid).startsWith('q-')) { const [, n, key] = e.uid.split('-'); qRepaint(+n, key); }
+  return !!en;
 }
 let xFila = Promise.resolve();
 const extrairDepois = e => { xFila = xFila.then(() => extrairErro(e)).catch(err => console.warn('extrair', err)); return xFila; };
@@ -311,7 +329,7 @@ function contentCard(s, p) {
       <div><div class="txt">${itemText(it)}</div><div class="acts">${itemJumps(it).map(([lab, pg]) => `<button class="chip" data-open="${it.a}" data-page="${pg}" data-i="${i}">${esc(lab)}</button>`).join('')}</div>
       ${it.t !== 'T' ? qGrid(s.n, String(i), it) : ''}</div></div>`;
   });
-  return h + (s.it.some(it => it.t !== 'T') ? `<div class="small mut" style="margin-top:8px">Questões: toque uma vez para ✓ acertei, duas para ✗ errei, três para ? chutei. Errada e chutada viram erro e voltam nas revisões.</div>` : '') + `</div>`;
+  return h + (s.it.some(it => it.t !== 'T') ? `<div class="small mut" style="margin-top:8px">Questões: toque uma vez para ✓ acertei, duas para ✗ errei, três para ? chutei. Errada e chutada viram erro e voltam nas revisões. Depois, toque na letra que você marcou: a IA usa para explicar o seu erro.</div>` : '') + `</div>`;
 }
 function errLine(e) {
   const A = aula(e.aula);
@@ -339,6 +357,7 @@ function revCard(s) {
 async function onSessaoClick(e) {
   const b = e.target.closest('button'); if (!b) return;
   if (b.classList.contains('qb')) return onQGrid(b);
+  if (b.classList.contains('ql')) return onQLetra(b);
   const n = S.viewN ?? curN();
   if (b.dataset.nav) { S.viewN = Math.min(total(), Math.max(1, n + +b.dataset.nav)); render(); return; }
   if (b.dataset.goto) { S.viewN = null; render(); return; }
@@ -882,7 +901,7 @@ function paintVGrid() {
   $('#vQ').classList.toggle('on', !g.hidden);
 }
 $('#vQ').onclick = () => { $('#vGrid').hidden = !$('#vGrid').hidden; paintVGrid(); };
-$('#vGrid').onclick = e => { const b = e.target.closest('.qb'); if (b) onQGrid(b); };
+$('#vGrid').onclick = e => { const b = e.target.closest('.qb, .ql'); if (b) b.classList.contains('ql') ? onQLetra(b) : onQGrid(b); };
 $('#vErr').onclick = () => errForm({ sessao: V.ctx?.sess || curN() || total(), aula: V.aula, pagina: String(V.cur) });
 let rsz; window.addEventListener('resize', () => { if ($('#viewer').hidden || !V.doc) return; clearTimeout(rsz); rsz = setTimeout(async () => { const p = V.cur; await layout(); goPage(p); }, 250); });
 

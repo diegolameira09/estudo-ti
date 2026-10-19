@@ -32,6 +32,7 @@ O repositório é público, mas só tem o app e o cronograma (nomes de arquivos 
 4. Uso diário
 - Aba Sessão: siga o número da sessão. Os botões abrem o PDF na página indicada. Marque cada item feito.
 - Questões das listas: cada lista tem uma grade com os números. Toque uma vez para ✓ (acertei), duas para ✗ (errei), três para ? (chutei) e a quarta limpa. Errada e chutada viram erro na hora, com sessão, aula, página e número, e voltam sozinhas nas revisões. Lista toda marcada marca o item como feito. Dentro do leitor, o botão "Questões" mostra a mesma grade, sem precisar fechar o PDF.
+- Depois de ✗ ou ?, aparece "q.N marquei" com as letras (C e E no Cebraspe, A a E nas outras bancas). Toque na que você marcou; tocar de novo limpa. É opcional, mas com ela a IA explica o seu erro de verdade em "Por que errei".
 - Para detalhar um erro (minha resposta, gabarito, por que errei): aba Erros, toque no erro. Ou use "+ Erro" (no leitor, já vem com a página aberta).
 - Marcar no PDF: no leitor, toque no lápis. Escolha Caneta, Marca-texto, Texto ou Borracha. Um dedo desenha, dois dedos rolam a página; ↶ desfaz. Toque em Pronto para voltar a rolar normalmente.
 - Marca-texto: arraste sobre a linha. Ele se encaixa na linha do texto e marca reto, com 30% de opacidade (amarelo, verde, vermelho, azul, roxo). Arrastando para baixo, marca várias linhas. Em página sem texto (imagem), faz uma faixa reta na altura do toque.
@@ -71,7 +72,7 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v18; a próxima é estudo-ti-v19).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v19; a próxima é estudo-ti-v20).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
 - Para conferir: Mais, no primeiro cartão, "Versão do app" mostra a versão instalada neste aparelho (funciona sem internet). "Procurar atualização" verifica na hora; se houver versão nova, o app recarrega sozinho (com um PDF aberto, recarrega ao fechar o PDF).
 - Se um aparelho ficar numa versão antiga: feche o app de verdade (tire dos apps recentes) e abra de novo com internet.
