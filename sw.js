@@ -1,4 +1,4 @@
-const VERSAO = 'estudo-ti-v19';
+const VERSAO = 'estudo-ti-v20';
 const ARQUIVOS = [
 "./",
 "index.html",
@@ -32,8 +32,9 @@ const ARQUIVOS = [
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSAO).then(c => c.addAll(ARQUIVOS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
+// só apaga caches deste app: outro app no mesmo endereço (diegolameira09.github.io) tem os seus
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSAO).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('estudo-ti-') && k !== VERSAO).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;

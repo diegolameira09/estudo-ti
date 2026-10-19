@@ -72,7 +72,7 @@ No dia a dia:
 - Restaurar (substitui tudo) é só para recuperar um aparelho do zero.
 
 7. Atualizar o app
-- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v19; a próxima é estudo-ti-v20).
+- Substitua os arquivos no repositório e mude a primeira linha do sw.js (hoje estudo-ti-v20; a próxima é estudo-ti-v21).
 - Na próxima vez que abrir o app com internet, ele avisa e atualiza.
 - Para conferir: Mais, no primeiro cartão, "Versão do app" mostra a versão instalada neste aparelho (funciona sem internet). "Procurar atualização" verifica na hora; se houver versão nova, o app recarrega sozinho (com um PDF aberto, recarrega ao fechar o PDF).
 - Se um aparelho ficar numa versão antiga: feche o app de verdade (tire dos apps recentes) e abra de novo com internet.
