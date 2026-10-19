@@ -566,7 +566,7 @@ async function aplicarIA(text, { so } = {}) {
 /* ---------------- caderno gerado pela API de IA (só quando o usuário pede) ---------------- */
 // S.ia = { prov, keys: {prov: chave}, models: {prov: modelo} }: fica em kv 'ia', fora do backup e da sincronização
 // cada erro enviado ganha e.ia = { st: 'ok' | 'falhou', em, por, msg }
-const iaCfg = () => ({ prov: S.ia.prov, key: S.ia.keys?.[S.ia.prov] || '', model: S.ia.models?.[S.ia.prov] || MODELO_PADRAO[S.ia.prov] || '' });
+const iaCfg = () => ({ prov: S.ia.prov, key: S.ia.keys?.[S.ia.prov] || '', model: S.ia.models?.[S.ia.prov] || MODELO_PADRAO[S.ia.prov] || '', ws: S.ia.prov === 'claude' ? S.ia.ws || '' : '' });
 const prontosIA = () => S.erros.filter(e => !e.regra && e.enun).sort((a, b) => a.sessao - b.sessao || a.id - b.id);
 async function gerarCaderno() {
   const cfg = iaCfg(), nome = PROVEDORES[cfg.prov];
@@ -731,6 +731,7 @@ async function renderMais() {
    <details ${cfgIA.key ? '' : 'open'}><summary class="small">IA: <b>${esc(PROVEDORES[cfgIA.prov])}</b>${cfgIA.model ? ' · ' + esc(cfgIA.model) : ''}${cfgIA.key ? '' : ' · <span class="warn">sem chave</span>'}</summary>
     <label for="iaProv">IA</label><select id="iaProv">${Object.entries(PROVEDORES).map(([k, n]) => `<option value="${k}" ${k === cfgIA.prov ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
     <label for="iaKey">Chave da API (fica só neste aparelho: não vai para backup, sincronização nem GitHub)</label><input id="iaKey" type="password" autocomplete="off" spellcheck="false" value="${esc(cfgIA.key)}">
+    ${cfgIA.prov === 'claude' ? `<label for="iaWs">ID do workspace (só se a chave pedir; começa com wrkspc_, fica no Console em Settings › Workspaces)</label><input id="iaWs" type="text" autocomplete="off" spellcheck="false" value="${esc(cfgIA.ws)}" placeholder="opcional">` : ''}
     <label for="iaModel">Modelo</label><div class="row"><input id="iaModel" type="text" list="iaModels" autocomplete="off" spellcheck="false" value="${esc(cfgIA.model)}" placeholder="toque em Listar"><button type="button" class="btn" id="iaList">Listar</button></div><datalist id="iaModels"></datalist>
     <p class="small mut">Defina um limite de gasto no painel do provedor: quem pegar este aparelho desbloqueado consegue ver a chave.</p>
    </details>
@@ -777,6 +778,7 @@ async function renderMais() {
   v.onchange = async ev => {
     if (ev.target.id === 'iaProv') { S.ia.prov = ev.target.value; await salvarIA(); render(); return; }
     if (ev.target.id === 'iaKey') { (S.ia.keys ??= {})[S.ia.prov] = ev.target.value.trim(); await salvarIA(); toast('Chave salva neste aparelho.'); render(); return; }
+    if (ev.target.id === 'iaWs') { S.ia.ws = ev.target.value.trim(); await salvarIA(); toast('ID do workspace salvo neste aparelho.'); render(); return; }
     if (ev.target.id === 'iaModel') { (S.ia.models ??= {})[S.ia.prov] = ev.target.value.trim(); await salvarIA(); render(); return; }
     if (ev.target.id === 'mDev') { S.set.device = ev.target.value.trim() || devPadrao(); await kvSet('set', S.set); S.syncDirty = true; toast(`Arquivo deste aparelho: ${ownFile()}`); render(); return; }
     const i = ev.target.dataset.dur; if (i == null) return;

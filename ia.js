@@ -16,9 +16,12 @@ async function anthropic() {
   try { return (sdk ??= (await import(SDK_CLAUDE)).default); }
   catch { sdk = null; throw new ErroIA('Não consegui carregar o SDK do Claude (sem internet?).', 'rede'); }
 }
-const clienteClaude = async key => new (await anthropic())({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 2 });
+// chave criada fora de um workspace exige o cabeçalho anthropic-workspace-id em todo pedido
+const clienteClaude = async cfg => new (await anthropic())({ apiKey: cfg.key, dangerouslyAllowBrowser: true, maxRetries: 2,
+  ...(cfg.ws ? { defaultHeaders: { 'anthropic-workspace-id': cfg.ws } } : {}) });
 async function erroClaude(e) {
   const A = await anthropic();
+  if (/not scoped to a workspace/i.test(String(e?.message))) return new ErroIA('Esta chave não pertence a um workspace: preencha o "ID do workspace" em Mais › IA (começa com wrkspc_) ou crie a chave dentro de um workspace no Console.', 'chave');
   if (e instanceof A.AuthenticationError || e instanceof A.PermissionDeniedError) return new ErroIA('Chave do Claude recusada. Confira em Mais › IA.', 'chave');
   if (e instanceof A.RateLimitError) return new ErroIA('Limite de uso do Claude atingido. Tente mais tarde.', 'limite');
   if (e instanceof A.APIConnectionError) return new ErroIA('Sem conexão com o Claude.', 'rede');
@@ -29,7 +32,7 @@ async function erroClaude(e) {
 const temFallback = m => /^claude-(opus-5|fable-5-1|sonnet-5-5)/.test(m);
 
 async function claude(cfg, system, user) {
-  const model = cfg.model || MODELO_PADRAO.claude, c = await clienteClaude(cfg.key);
+  const model = cfg.model || MODELO_PADRAO.claude, c = await clienteClaude(cfg);
   let r;
   try {
     r = await c.beta.messages.create({
@@ -84,7 +87,7 @@ export async function gerar(cfg, system, user) {
 export async function listarModelos(cfg) {
   if (!cfg?.key) throw new ErroIA('Informe a chave primeiro.', 'chave');
   if (cfg.prov === 'claude') {
-    const c = await clienteClaude(cfg.key); const ids = [];
+    const c = await clienteClaude(cfg); const ids = [];
     try { for await (const m of c.models.list()) ids.push(m.id); } catch (e) { throw await erroClaude(e); }
     return ids;
   }
